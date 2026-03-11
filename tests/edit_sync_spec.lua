@@ -43,9 +43,9 @@ describe("TaskManager Editor Sync", function()
     
     -- Setup origin tracking correctly
     vim.b[edit_buf].task_origins = {
-      ["t:111"] = { file_path = target_file, original_line = "- [ ] Keep me | id:t:111", id = "t:111" },
-      ["t:222"] = { file_path = target_file, original_line = "- [ ] Edit me | id:t:222", id = "t:222" },
-      ["t:333"] = { file_path = target_file, original_line = "- [ ] Delete me | id:t:333", id = "t:333" }
+      ["t:111"] = { file_path = target_file, initial_line = "- [ ] Keep me | id:t:111", id = "t:111" },
+      ["t:222"] = { file_path = target_file, initial_line = "- [ ] Edit me | id:t:222", id = "t:222" },
+      ["t:333"] = { file_path = target_file, initial_line = "- [ ] Delete me | id:t:333", id = "t:333" }
     }
     
     -- Simulate the user editing the buffer

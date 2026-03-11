@@ -35,7 +35,7 @@ vim.api.nvim_create_autocmd("BufEnter", {
         syntax match TaskManagerProject /@[a-zA-Z0-9_-]\+/
         syntax match TaskManagerTag /#[a-zA-Z0-9_-]\+/
         syntax match TaskManagerPriority /+[a-zA-Z0-9_-]\+/
-        syntax match TaskManagerDueDate /due:[a-zA-Z0-9_-]\+/
+        syntax match TaskManagerDueDate /\<\(due\|start\):[a-zA-Z0-9_-]\+/
         syntax match TaskManagerId /id:t:[a-zA-Z0-9_-]\+/
         syntax match TaskManagerMetadata /\<[bcl|done]\+:[a-zA-Z0-9_-]\+/
         syntax match TaskManagerPipe /|/
@@ -56,7 +56,7 @@ vim.api.nvim_create_autocmd("BufWritePre", {
     local in_dir = tm.is_managed_file(file_path)
     
     if in_dir then
-      tm.sync_current_buffer()
+      tm.sync_current_buffer(args.buf)
     end
   end
 })

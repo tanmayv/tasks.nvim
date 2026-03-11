@@ -59,6 +59,8 @@ function M.parse_line(line)
       local key, val = word:match("^(%w+):(.+)$")
       if key == "due" then
         task.due_date = date_utils.parse_relative(val)
+      elseif key == "start" then
+        task.start_date = date_utils.parse_relative(val)
       else
         task.metadata[key] = val
       end
@@ -86,6 +88,9 @@ function M.format_description(task)
   end
   if task.due_date then
     table.insert(parts, "due:" .. task.due_date)
+  end
+  if task.start_date then
+    table.insert(parts, "start:" .. task.start_date)
   end
   -- Sort metadata keys for deterministic output
   local keys = {}

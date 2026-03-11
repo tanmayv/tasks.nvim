@@ -226,7 +226,7 @@ function M.tasks(opts)
           -- Save origin tracking information
           origins[task.id] = {
             file_path = task.file_path,
-            original_line = task.original_line,
+            initial_line = line,
             id = task.id
           }
           current_line = current_line + 1

@@ -264,10 +264,10 @@ function M.apply_editor_changes(bufnr)
       -- We must re-format the parsed task to standardize it before comparing, 
       -- or just compare the literal line strings if we trust the user.
       -- Let's compare raw line strings. The user's new string is `current.line`.
-      if origin.original_line ~= current.line then
+      if origin.initial_line ~= current.line then
         table.insert(file_changes[origin.file_path].updates, {
           origin = origin,
-          new_line = current.line
+          new_task = current.task
         })
       end
     end
@@ -287,8 +287,10 @@ function M.apply_editor_changes(bufnr)
       -- Apply updates
       for _, update in ipairs(changes.updates) do
         for i, t_line in ipairs(target_lines) do
-          if t_line == update.origin.original_line then
-            target_lines[i] = update.new_line
+          local target_task = parser.parse_line(t_line)
+          if target_task and target_task.id == update.origin.id then
+            local prefix = t_line:sub(1, target_task.prefix_length - 3)
+            target_lines[i] = parser.format_line(prefix, update.new_task.status, update.new_task)
             break
           end
         end
@@ -297,7 +299,8 @@ function M.apply_editor_changes(bufnr)
       -- Apply deletes (mark them as nil first to not mess up iteration indices)
       for _, del in ipairs(changes.deletes) do
         for i, t_line in ipairs(target_lines) do
-          if t_line == del.original_line then
+          local target_task = parser.parse_line(t_line)
+          if target_task and target_task.id == del.id then
             target_lines[i] = false -- Mark for deletion
             break
           end
@@ -316,6 +319,7 @@ function M.apply_editor_changes(bufnr)
       vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, final_lines)
       
       -- Save to trigger sync
+      require("task_manager.sync").sync_buffer(target_buf)
       utils.save_buffer(target_buf)
     end
   end

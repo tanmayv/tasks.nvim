@@ -16,11 +16,39 @@ function M.setup(opts)
   end
   
   -- Initialize db
-  db.init(M.config.db_path)
+  local ok, err = pcall(function()
+    db.init(M.config.db_path)
+    -- Test schema by doing a dummy select
+    db.db.tasks:get({ select = { "start_date" }, limit = 1 })
+  end)
+
+  if not ok then
+    -- Schedule the prompt to run after UI is fully initialized
+    vim.schedule(function()
+      local msg = string.format("TaskManager: Database schema is outdated (missing start_date). Type 'yes' to delete %s and recreate it.", M.config.db_path)
+      local input = vim.fn.input(msg .. " ")
+      if input == "yes" then
+        os.remove(M.config.db_path)
+        db.init(M.config.db_path)
+        vim.notify("TaskManager database recreated.", vim.log.levels.INFO)
+        M.index_tasks()
+      else
+        vim.notify("TaskManager: Database recreation cancelled. Plugin may not work correctly.", vim.log.levels.WARN)
+      end
+    end)
+  end
 end
 
-function M.sync_current_buffer()
-  sync.sync_buffer()
+function M.sync_current_buffer(bufnr)
+  sync.sync_buffer(bufnr)
+end
+
+function M.index_tasks()
+  for _, dir in ipairs(M.config.directories) do
+    local expanded_dir = vim.fn.expand(dir)
+    sync.index_directory(expanded_dir)
+  end
+  vim.notify("TaskManager: All tasks successfully indexed!", vim.log.levels.INFO)
 end
 
 function M.is_managed_file(file_path)

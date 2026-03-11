@@ -28,6 +28,7 @@ describe("TaskManager Scoring", function()
       string.format("- [ ] Overdue task due:%s", yesterday),
       string.format("- [ ] Due today task due:%s", today),
       string.format("- [ ] Next week task due:%s", next_week),
+      string.format("- [ ] Future start task start:%s", next_week),
     }
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     sync.sync_buffer(bufnr)
@@ -48,6 +49,7 @@ describe("TaskManager Scoring", function()
     -- 4. High priority (50)
     -- 5. Next week (~51) -- Wait, next week is 7 days. Score = 100 - (7*7) = 51.
     -- 6. Boring task (0)
+    -- 7. Future start task (< -900)
     
     assert.is_true(tasks[1].description:match("Overdue") ~= nil)
     assert.is_true(tasks[2].description:match("today") ~= nil)
@@ -55,9 +57,11 @@ describe("TaskManager Scoring", function()
     assert.is_true(tasks[4].description:match("Next week") ~= nil)
     assert.is_true(tasks[5].description:match("High priority") ~= nil)
     assert.is_true(tasks[6].description:match("Boring") ~= nil)
+    assert.is_true(tasks[7].description:match("Future start") ~= nil)
     
     assert.is_true(tasks[1].score > 200)
     assert.are.same(150, tasks[2].score)
     assert.are.same(100, tasks[3].score)
+    assert.is_true(tasks[7].score <= -900)
   end)
 end)

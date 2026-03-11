@@ -33,6 +33,13 @@ describe("TaskManager Parser", function()
     assert.are.same(task.tags[1], "cool")
   end)
 
+  it("should parse start: format", function()
+    local date_utils = require("task_manager.date")
+    local tomorrow = date_utils.parse_relative("tomorrow")
+    local task = parser.parse_line("- [ ] Future task start:tomorrow")
+    assert.are.same(task.start_date, tomorrow)
+  end)
+
   it("should generate random IDs", function()
     local id1 = parser.generate_id()
     local id2 = parser.generate_id()
@@ -177,6 +184,14 @@ describe("TaskManager Database Integration", function()
     -- Filter by tag
     local frontend_tasks = db.get_tasks({ tags = { "frontend" } })
     assert.are.same(2, #frontend_tasks)
+    
+    -- Filter by any tag (OR logic)
+    local any_tag_tasks = db.get_tasks({ tags = { "frontend", "urgent" }, match_any_tag = true })
+    assert.are.same(3, #any_tag_tasks) -- Task 1, 2, 4
+    
+    -- Filter by all tags (AND logic)
+    local all_tag_tasks = db.get_tasks({ tags = { "backend", "urgent" } })
+    assert.are.same(1, #all_tag_tasks) -- Task 2
     
     -- Complex filter: work project, todo status, frontend tag
     local complex_tasks = db.get_tasks({ project = "work", status = { "todo" }, tags = { "frontend" } })

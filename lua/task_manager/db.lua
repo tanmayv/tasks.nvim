@@ -18,6 +18,7 @@ function M.init(db_path)
       project = { "text" },
       priority = { "text" },
       due_date = { "text" },
+      start_date = { "text" },
       file_path = { "text" },
       line_number = { "integer" },
       created_at = { "integer" },
@@ -53,6 +54,7 @@ function M.upsert_task(task, file_path, line_number)
         project = task.project,
         priority = task.priority,
         due_date = task.due_date,
+        start_date = task.start_date,
         file_path = file_path,
         line_number = line_number,
         updated_at = now
@@ -67,6 +69,7 @@ function M.upsert_task(task, file_path, line_number)
       project = task.project,
       priority = task.priority,
       due_date = task.due_date,
+      start_date = task.start_date,
       file_path = file_path,
       line_number = line_number,
       created_at = now,
@@ -144,20 +147,35 @@ function M.get_tasks(opts)
       end
     end
     
-    -- Check if it has all required tags
+    -- Check if it has required tags
     local has_all_tags = true
     if opts.tags and #opts.tags > 0 then
-      for _, required_tag in ipairs(opts.tags) do
-        local found = false
-        for _, tag in ipairs(task.tags) do
-          if tag == required_tag then
-            found = true
+      if opts.match_any_tag then
+        has_all_tags = false
+        for _, required_tag in ipairs(opts.tags) do
+          for _, tag in ipairs(task.tags) do
+            if tag == required_tag then
+              has_all_tags = true
+              break
+            end
+          end
+          if has_all_tags then
             break
           end
         end
-        if not found then
-          has_all_tags = false
-          break
+      else
+        for _, required_tag in ipairs(opts.tags) do
+          local found = false
+          for _, tag in ipairs(task.tags) do
+            if tag == required_tag then
+              found = true
+              break
+            end
+          end
+          if not found then
+            has_all_tags = false
+            break
+          end
         end
       end
     end
@@ -203,6 +221,13 @@ function M.get_tasks(opts)
       else
         -- Base score for having any other tag
         score = score + 5
+      end
+    end
+    
+    -- Start Date check (Massive penalty if in the future)
+    if task.start_date then
+      if today < task.start_date then
+        score = score - 1000
       end
     end
     
