@@ -1,0 +1,25 @@
+local date_utils = require("task_manager.date")
+local parser = require("task_manager.parser")
+
+describe("TaskManager Date Utils", function()
+  it("should format valid dates naturally", function()
+    local today = os.date("!%Y-%m-%d")
+    local tomorrow = os.date("!%Y-%m-%d", os.time() + 86400)
+    local in_2d = os.date("!%Y-%m-%d", os.time() + 86400 * 2)
+    local in_1w = os.date("!%Y-%m-%d", os.time() + 86400 * 7)
+
+    assert.are.same(today, date_utils.parse_relative("today"))
+    assert.are.same(tomorrow, date_utils.parse_relative("tomorrow"))
+    assert.are.same(in_2d, date_utils.parse_relative("2d"))
+    assert.are.same(in_1w, date_utils.parse_relative("1w"))
+    
+    assert.are.same("2025-10-10", date_utils.parse_relative("2025-10-10"))
+    assert.are.same("unknown", date_utils.parse_relative("unknown"))
+  end)
+
+  it("should integrate with the parser", function()
+    local task = parser.parse_line("- [ ] Test due:tomorrow")
+    local expected = os.date("!%Y-%m-%d", os.time() + 86400)
+    assert.are.same(expected, task.due_date)
+  end)
+end)
