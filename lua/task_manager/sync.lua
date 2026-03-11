@@ -1,5 +1,6 @@
 local parser = require("task_manager.parser")
 local db = require("task_manager.db")
+local utils = require("task_manager.utils")
 
 local M = {}
 
@@ -21,14 +22,6 @@ function M.sync_buffer(bufnr)
         task.id = parser.generate_id()
       end
       
-      -- Format the line to standardize | position
-      local new_line = parser.format_line(prefix, task.status, task)
-      if line ~= new_line then
-        table.insert(changes, { line_number = i, text = new_line })
-      end
-      
-      current_ids[task.id] = true
-      
       -- Apply auto-tags based on filepath
       local tm = require("task_manager")
       if tm.config.auto_tags then
@@ -42,6 +35,14 @@ function M.sync_buffer(bufnr)
           end
         end
       end
+      
+      -- Format the line to standardize | position
+      local new_line = parser.format_line(prefix, task.status, task)
+      if line ~= new_line then
+        table.insert(changes, { line_number = i, text = new_line })
+      end
+      
+      current_ids[task.id] = true
       
       -- Upsert to DB
       if db.db then
@@ -70,23 +71,38 @@ end
 
 -- Scan a directory for markdown files and sync them
 function M.index_directory(dir_path)
-  -- Simple find command
-  local handle = io.popen('find "' .. dir_path .. '" -name "*.md"')
-  if not handle then return end
+  local files = vim.fn.glob(dir_path .. '/**/*.md', false, true)
   
-  local result = handle:read("*a")
-  handle:close()
-  
-  for file in string.gmatch(result, "[^\n]+") do
-    local bufnr = vim.fn.bufadd(file)
-    vim.fn.bufload(bufnr)
+  for _, file in ipairs(files) do
+    local bufnr = utils.ensure_buffer_loaded(file)
     M.sync_buffer(bufnr)
     
     -- Save the buffer if changes were made
     if vim.api.nvim_buf_get_option(bufnr, 'modified') then
-      vim.api.nvim_buf_call(bufnr, function()
-        vim.cmd('silent write')
-      end)
+      utils.save_buffer(bufnr)
+    end
+  end
+
+  -- Clean up orphaned tasks (files that were deleted from disk)
+  if db.db then
+    local db_tasks = db.db.tasks:get({ select = { "file_path" } })
+    if db_tasks then
+      local unique_files = {}
+      for _, task in ipairs(db_tasks) do
+        if task.file_path then
+          unique_files[task.file_path] = true
+        end
+      end
+      
+      for fpath, _ in pairs(unique_files) do
+        -- Only clean up files that were supposed to be in this directory
+        -- and no longer exist on the filesystem
+        if fpath:find(dir_path, 1, true) == 1 then
+          if vim.fn.filereadable(fpath) == 0 then
+            db.db.tasks:remove({ file_path = fpath })
+          end
+        end
+      end
     end
   end
   

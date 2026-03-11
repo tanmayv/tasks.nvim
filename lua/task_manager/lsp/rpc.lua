@@ -1,5 +1,3 @@
-local json = require("task_manager.lsp.json")
-
 local M = {}
 
 function M.read_message()
@@ -22,7 +20,7 @@ function M.read_message()
   local body = io.read(content_length)
   if not body then return nil end
 
-  local ok, decoded = pcall(json.decode, body)
+  local ok, decoded = pcall(vim.json.decode, body)
   if not ok then return nil end
   return decoded
 end
@@ -34,7 +32,7 @@ function M.write_response(id, result)
     result = result
   }
   
-  local ok, encoded = pcall(json.encode, response)
+  local ok, encoded = pcall(vim.json.encode, response)
   if not ok then return end
   
   io.write(string.format("Content-Length: %d\r\n\r\n%s", #encoded, encoded))
@@ -48,7 +46,7 @@ function M.send_notification(method, params)
     params = params
   }
   
-  local ok, encoded = pcall(json.encode, notification)
+  local ok, encoded = pcall(vim.json.encode, notification)
   if not ok then return end
   
   io.write(string.format("Content-Length: %d\r\n\r\n%s", #encoded, encoded))

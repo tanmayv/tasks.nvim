@@ -200,6 +200,9 @@ function M.get_tasks(opts)
     for _, tag in ipairs(task.tags) do
       if tag == "urgent" then
         score = score + 100
+      else
+        -- Base score for having any other tag
+        score = score + 5
       end
     end
     

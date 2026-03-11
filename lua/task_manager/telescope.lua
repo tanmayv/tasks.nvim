@@ -33,10 +33,10 @@ function M.tasks(opts)
     items = {
       { width = 6 }, -- Score
       { width = 4 }, -- Status
-      { width = 50 }, -- Description
-      { width = 15 }, -- Project
-      { width = 20 }, -- Tags
-      { remaining = true }, -- File Context
+      { width = 12 }, -- Project
+      { width = 15 }, -- Tags
+      { width = 20 }, -- File Context
+      { remaining = true }, -- Description
     },
   })
 
@@ -75,10 +75,10 @@ function M.tasks(opts)
     return displayer({
       { score_str, hl_score },
       { status_str, hl_status },
-      task.description,
       { project_str, "TelescopeResultsConstant" },
       { tags_str, "TelescopeResultsSpecialComment" },
       { context_str, "TelescopeResultsComment" },
+      task.description,
     })
   end
 
@@ -106,11 +106,11 @@ function M.tasks(opts)
     }),
     sorter = conf.generic_sorter({}),
     previewer = conf.grep_previewer({}),
-    layout_strategy = "horizontal",
+    layout_strategy = "vertical",
     layout_config = {
       width = 0.95,
-      height = 0.85,
-      preview_width = 0.35, -- Smaller preview to give more room for task list
+      height = 0.95,
+      preview_height = 0.4,
     },
     attach_mappings = function(prompt_bufnr, map)
       actions.select_default:replace(function()

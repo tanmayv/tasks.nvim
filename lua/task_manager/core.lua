@@ -1,12 +1,10 @@
 local parser = require("task_manager.parser")
+local utils = require("task_manager.utils")
 
 local M = {}
 
 function M.toggle_done(file_path, line_number)
-  local bufnr = vim.fn.bufadd(file_path)
-  if not vim.api.nvim_buf_is_loaded(bufnr) then
-    vim.fn.bufload(bufnr)
-  end
+  local bufnr = utils.ensure_buffer_loaded(file_path)
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, line_number - 1, line_number, false)
   if not lines or #lines == 0 then return false end
@@ -34,11 +32,7 @@ function M.toggle_done(file_path, line_number)
   vim.api.nvim_buf_set_lines(bufnr, line_number - 1, line_number, false, { new_line })
   
   -- Check if we can write the file (in tests we use non-file buffers)
-  if vim.api.nvim_buf_get_option(bufnr, "buftype") == "" then
-    vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd('silent! write')
-    end)
-  end
+  utils.save_buffer(bufnr)
   
   return true
 end
@@ -69,10 +63,7 @@ function M.add_task(description)
   end
   
   -- Open or create the buffer
-  local bufnr = vim.fn.bufadd(inbox_path)
-  if not vim.api.nvim_buf_is_loaded(bufnr) then
-    vim.fn.bufload(bufnr)
-  end
+  local bufnr = utils.ensure_buffer_loaded(inbox_path)
   
   -- Add the new task line
   local new_task_line = "- [ ] " .. description
@@ -85,11 +76,7 @@ function M.add_task(description)
   require("task_manager.sync").sync_buffer(bufnr)
   
   -- Save the file
-  if vim.api.nvim_buf_get_option(bufnr, "buftype") == "" then
-    vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd('silent! write')
-    end)
-  end
+  utils.save_buffer(bufnr)
   
   vim.notify("Added task to " .. vim.fn.fnamemodify(inbox_path, ":t"), vim.log.levels.INFO)
   return true
@@ -249,11 +236,8 @@ function M.apply_editor_changes(bufnr)
         else
           -- This is a newly added task line without an ID
           -- M.add_task appends `- [ ]` automatically, so we just want to pass the raw description
-          local desc = task.description
-          if task.project then desc = desc .. " @" .. task.project end
-          for _, tag in ipairs(task.tags) do desc = desc .. " #" .. tag end
-          if task.priority then desc = desc .. " +" .. task.priority end
-          if task.due_date then desc = desc .. " due:" .. task.due_date end
+          local parts = parser.format_description(task)
+          local desc = table.concat(parts, " ")
           
           M.add_task(desc)
         end
@@ -293,10 +277,7 @@ function M.apply_editor_changes(bufnr)
   for file_path, changes in pairs(file_changes) do
     if #changes.deletes > 0 or #changes.updates > 0 then
       -- Load the buffer for this file
-      local target_buf = vim.fn.bufadd(file_path)
-      if not vim.api.nvim_buf_is_loaded(target_buf) then
-        vim.fn.bufload(target_buf)
-      end
+      local target_buf = utils.ensure_buffer_loaded(file_path)
       
       local target_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
       
@@ -335,11 +316,7 @@ function M.apply_editor_changes(bufnr)
       vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, final_lines)
       
       -- Save to trigger sync
-      if vim.api.nvim_buf_get_option(target_buf, "buftype") == "" then
-        vim.api.nvim_buf_call(target_buf, function()
-          vim.cmd('silent! write')
-        end)
-      end
+      utils.save_buffer(target_buf)
     end
   end
   

@@ -1,4 +1,3 @@
-local json = require("task_manager.lsp.json") -- We will need a simple json parser
 local rpc = require("task_manager.lsp.rpc")
 local handlers = require("task_manager.lsp.handlers")
 

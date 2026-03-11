@@ -27,14 +27,7 @@ vim.api.nvim_create_autocmd("BufEnter", {
     -- Only apply syntax highlighting to actual task files
     local tm = require("task_manager")
     local file_path = vim.api.nvim_buf_get_name(0)
-    local in_dir = false
-    
-    for _, dir in ipairs(tm.config.directories) do
-      if file_path:find(vim.fn.expand(dir), 1, true) == 1 then
-        in_dir = true
-        break
-      end
-    end
+    local in_dir = tm.is_managed_file(file_path)
     
     if in_dir or vim.b.is_task_manager_input or vim.b.is_task_manager_editor then
       -- Apply regex based syntax matches
@@ -60,14 +53,7 @@ vim.api.nvim_create_autocmd("BufWritePre", {
     -- Fast check if buffer is in one of the configured directories
     local file_path = vim.api.nvim_buf_get_name(args.buf)
     
-    local in_dir = false
-    for _, dir in ipairs(tm.config.directories) do
-      local expanded_dir = vim.fn.expand(dir)
-      if file_path:find(expanded_dir, 1, true) == 1 then
-        in_dir = true
-        break
-      end
-    end
+    local in_dir = tm.is_managed_file(file_path)
     
     if in_dir then
       tm.sync_current_buffer()

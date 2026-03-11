@@ -23,6 +23,16 @@ function M.sync_current_buffer()
   sync.sync_buffer()
 end
 
+function M.is_managed_file(file_path)
+  for _, dir in ipairs(M.config.directories) do
+    local expanded_dir = vim.fn.expand(dir)
+    if file_path:find(expanded_dir, 1, true) == 1 then
+      return true
+    end
+  end
+  return false
+end
+
 function M.setup_lsp()
   local script_path = debug.getinfo(1, "S").source:sub(2)
   local plugin_root = script_path:match("(.*)/lua/task_manager/init%.lua")
@@ -49,12 +59,8 @@ function M.setup_lsp()
       else
         -- Check if file is in our managed directories before attaching LSP
         local file_path = vim.api.nvim_buf_get_name(args.buf)
-        for _, dir in ipairs(M.config.directories) do
-          local expanded_dir = vim.fn.expand(dir)
-          if file_path:find(expanded_dir, 1, true) == 1 then
-            should_attach = true
-            break
-          end
+        if M.is_managed_file(file_path) then
+          should_attach = true
         end
         
         -- Also attach if it's our special task input buffer just in case

@@ -72,6 +72,37 @@ function M.parse_line(line)
   return task
 end
 
+function M.format_description(task)
+  local parts = { task.description }
+  
+  if task.project then
+    table.insert(parts, "@" .. task.project)
+  end
+  for _, tag in ipairs(task.tags) do
+    table.insert(parts, "#" .. tag)
+  end
+  if task.priority then
+    table.insert(parts, "+" .. task.priority)
+  end
+  if task.due_date then
+    table.insert(parts, "due:" .. task.due_date)
+  end
+  -- Sort metadata keys for deterministic output
+  local keys = {}
+  for k in pairs(task.metadata) do
+    table.insert(keys, k)
+  end
+  table.sort(keys)
+  for _, k in ipairs(keys) do
+    table.insert(parts, k .. ":" .. task.metadata[k])
+  end
+  if task.id then
+    table.insert(parts, "id:" .. task.id)
+  end
+  
+  return parts
+end
+
 -- Reconstruct a line from a task table (for writing back the ID)
 function M.format_line(prefix, status, task)
   -- Map back status to char
@@ -84,37 +115,11 @@ function M.format_line(prefix, status, task)
   
   local status_char = reverse_status[status] or " "
   
-  local line = prefix .. "[" .. status_char .. "] " .. task.description
+  local parts = M.format_description(task)
+  local line = prefix .. "[" .. status_char .. "] " .. table.remove(parts, 1)
   
-  local metadata_parts = {}
-  
-  if task.project then
-    table.insert(metadata_parts, "@" .. task.project)
-  end
-  for _, tag in ipairs(task.tags) do
-    table.insert(metadata_parts, "#" .. tag)
-  end
-  if task.priority then
-    table.insert(metadata_parts, "+" .. task.priority)
-  end
-  if task.due_date then
-    table.insert(metadata_parts, "due:" .. task.due_date)
-  end
-  -- Sort metadata keys for deterministic output
-  local keys = {}
-  for k in pairs(task.metadata) do
-    table.insert(keys, k)
-  end
-  table.sort(keys)
-  for _, k in ipairs(keys) do
-    table.insert(metadata_parts, k .. ":" .. task.metadata[k])
-  end
-  if task.id then
-    table.insert(metadata_parts, "id:" .. task.id)
-  end
-  
-  if #metadata_parts > 0 then
-    line = line .. " | " .. table.concat(metadata_parts, " ")
+  if #parts > 0 then
+    line = line .. " | " .. table.concat(parts, " ")
   end
   
   return line
