@@ -13,30 +13,39 @@ A Neovim task management plugin powered by SQLite and Markdown.
 
 ## Installation
 
-### Using Lazy.nvim
+### Complete Lazy.nvim Configuration Example
+You can copy this directly into your `lua/plugins/task_manager.lua` file:
+
 ```lua
-{
-  "your-username/nvim-task-manager",
+return {
+  "tanmayv/nvim-task-manager",
   dependencies = {
     "kkharji/sqlite.lua",
-    "nvim-telescope/telescope.nvim", -- Optional, but highly recommended for :Tasks command
+    "nvim-telescope/telescope.nvim",
     "nvim-lua/plenary.nvim",
+  },
+  keys = {
+    { "<leader>tn", "<cmd>TaskAdd<CR>", desc = "Add Task to Inbox" },
+    { "<leader>tt", "<cmd>Tasks<CR>", desc = "View Open Tasks" },
+    { "<leader>ta", function() require("task_manager.telescope").tasks({ status = { "todo", "in_progress", "done", "cancelled" } }) end, desc = "View All Tasks" },
+    { "<leader>tu", function() require("task_manager.telescope").tasks({ tags = { "urgent" } }) end, desc = "View Urgent Tasks" },
+    { "<leader>tw", function() require("task_manager.telescope").tasks({ project = "work" }) end, desc = "View Work Tasks" },
+    { "<leader>tx", "<cmd>TaskToggle<CR>", mode = { "n", "v" }, desc = "Toggle Task Status" },
   },
   config = function()
     require("task_manager").setup({
-      -- Optional configuration
       directories = { "~/tasks" },
       db_path = vim.fn.stdpath("data") .. "/task_manager.db",
-      inbox_file = "~/tasks/inbox.md", -- Default drop location for :TaskAdd
+      inbox_file = "~/tasks/inbox.md",
       
-      -- Auto-tag tasks based on the file path they live in (supports Lua regex patterns)
+      -- Automatically attach tags based on the markdown file's path
       auto_tags = {
         ["/daily/"] = { "daily" },
         ["/work/"] = { "work" }
       }
     })
     
-    -- Optional: Initialize LSP for autocomplete & diagnostics in task files
+    -- Optional: Initialize LSP for autocomplete & diagnostics
     require("task_manager").setup_lsp()
   end
 }
@@ -52,13 +61,15 @@ Simply write tasks in your configured directories as markdown lists:
 On save, the plugin will append a unique `id` to the tasks and sync them to your SQLite database.
 
 **Natural Language Dates:**
-You can type natural language into the `due:` tag and the plugin will automatically parse and convert it to `YYYY-MM-DD` standard format upon saving!
+You can type natural language into the `due:` or `start:` tags and the plugin will automatically parse and convert it to `YYYY-MM-DD` standard format upon saving!
 Supported formats:
 - `due:today`
-- `due:tomorrow`
+- `start:tomorrow`
 - `due:3d` (3 days)
-- `due:2w` (2 weeks)
+- `start:2w` (2 weeks)
 - `due:1m` (1 month)
+
+*Note:* If you set a `start:` date that is in the future, the task will receive a massive penalty to its score, effectively hiding it at the bottom of your Telescope list until the start date arrives!
 
 ### LSP Support
 By calling `require("task_manager").setup_lsp()` in your config, the plugin runs a local LSP server.
@@ -121,6 +132,14 @@ end)
 -- View ONLY #urgent tasks
 vim.keymap.set("n", "<leader>tu", function()
   require("task_manager.telescope").tasks({ tags = { "urgent" } })
+end)
+
+-- View tasks that have EITHER the #urgent OR #frontend tag (OR logic)
+vim.keymap.set("n", "<leader>to", function()
+  require("task_manager.telescope").tasks({ 
+    tags = { "urgent", "frontend" },
+    match_any_tag = true 
+  })
 end)
 
 -- Toggle task on the current line (or multiple in visual selection)
