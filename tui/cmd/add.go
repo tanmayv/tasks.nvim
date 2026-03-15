@@ -19,7 +19,7 @@ var addCmd = &cobra.Command{
 		cfg := getConfig()
 
 		desc := strings.Join(args, " ")
-		err := sync.AddTaskToInbox(desc, cfg.InboxFile, dbConn)
+		err := sync.AddTaskToInbox(desc, cfg.InboxFile, dbConn, cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to add task: %v\n", err)
 			os.Exit(1)

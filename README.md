@@ -57,13 +57,19 @@ nix build
 # Link the ./result/bin/task into your environment
 ```
 
-Once installed, use `~/.config/task-manager-tui/config.json` to configure the database path and inbox file.
+Once installed, use `~/.config/task-manager-tui/config.json` to configure the database path, inbox file, and auto-tags!
 ```json
 {
   "db_path": "~/.local/share/nvim/task_manager.db",
-  "inbox_file": "~/tasks/inbox.md"
+  "inbox_file": "~/tasks/inbox.md",
+  "auto_tags": {
+    "/daily/": ["daily"],
+    "/work/": ["work"]
+  }
 }
 ```
+
+The Go backend will automatically attach tags to tasks based on regex matches of their markdown file's path during synchronization.
 
 ## Usage
 Simply write tasks in your configured directories as markdown lists:

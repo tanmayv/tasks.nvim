@@ -75,7 +75,7 @@ var bulkUpdateCmd = &cobra.Command{
 					// It's a brand new task added in the scratch buffer
 					parts := parser.FormatDescription(task)
 					desc := strings.Join(parts, " ")
-					sync.AddTaskToInbox(desc, cfg.InboxFile, dbConn)
+					sync.AddTaskToInbox(desc, cfg.InboxFile, dbConn, cfg)
 				}
 			}
 		}
@@ -161,7 +161,7 @@ var bulkUpdateCmd = &cobra.Command{
 			}
 
 			// Resync the file with the DB
-			sync.SyncBuffer(filePath, dbConn)
+			sync.SyncBuffer(filePath, dbConn, cfg)
 		}
 
 		asJSON, _ := cmd.Flags().GetBool("json")

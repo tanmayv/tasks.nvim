@@ -16,6 +16,7 @@ var syncCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		dbConn := getDB()
 		defer dbConn.Close()
+		cfg := getConfig()
 
 		filePath := args[0]
 		absPath, err := filepath.Abs(filePath)
@@ -24,7 +25,7 @@ var syncCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		err = sync.SyncBuffer(absPath, dbConn)
+		err = sync.SyncBuffer(absPath, dbConn, cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to sync buffer: %v\n", err)
 			os.Exit(1)
@@ -46,6 +47,7 @@ var indexCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		dbConn := getDB()
 		defer dbConn.Close()
+		cfg := getConfig()
 
 		dirPath := args[0]
 		absPath, err := filepath.Abs(dirPath)
@@ -54,7 +56,7 @@ var indexCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		err = sync.IndexDirectory(absPath, dbConn)
+		err = sync.IndexDirectory(absPath, dbConn, cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to index directory: %v\n", err)
 			os.Exit(1)

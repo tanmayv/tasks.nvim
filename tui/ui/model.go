@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/tanmayv/nvim-task-manager/tui/config"
 	"github.com/tanmayv/nvim-task-manager/tui/db"
 	"github.com/tanmayv/nvim-task-manager/tui/sync"
 )
@@ -193,7 +194,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				val := m.inputModel.textInput.Value()
 				if strings.TrimSpace(val) != "" {
-					err := sync.AddTaskToInbox(val, m.inboxPath, m.dbConn)
+					cfg, _ := config.LoadConfig()
+					err := sync.AddTaskToInbox(val, m.inboxPath, m.dbConn, cfg)
 					if err != nil {
 						m.err = err
 					}

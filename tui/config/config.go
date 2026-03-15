@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	DBPath    string `json:"db_path"`
-	InboxFile string `json:"inbox_file"`
+	DBPath    string              `json:"db_path"`
+	InboxFile string              `json:"inbox_file"`
+	AutoTags  map[string][]string `json:"auto_tags"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -23,6 +24,7 @@ func LoadConfig() (*Config, error) {
 	config := &Config{
 		DBPath:    filepath.Join(homeDir, ".local", "share", "nvim", "task_manager.db"),
 		InboxFile: filepath.Join(homeDir, "tasks", "inbox.md"),
+		AutoTags:  make(map[string][]string),
 	}
 
 	file, err := os.Open(configPath)

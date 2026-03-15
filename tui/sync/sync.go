@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tanmayv/nvim-task-manager/tui/config"
 	"github.com/tanmayv/nvim-task-manager/tui/db"
 	"github.com/tanmayv/nvim-task-manager/tui/parser"
 )
 
-func AddTaskToInbox(desc, inboxPath string, d *db.DB) error {
+func AddTaskToInbox(desc, inboxPath string, d *db.DB, cfg *config.Config) error {
 	id := parser.GenerateID()
 	now := time.Now().UTC()
 
@@ -58,6 +59,8 @@ func AddTaskToInbox(desc, inboxPath string, d *db.DB) error {
 
 	if parsedTask != nil {
 		parsedTask.ID = id
+		applyAutoTags(parsedTask, inboxPath, cfg)
+		task.Tags = parsedTask.Tags
 		taskLine = parser.FormatLine(parsedTask)
 	}
 
@@ -151,7 +154,7 @@ func ToggleTask(taskID, filePath string, currentStatus string, d *db.DB) error {
 }
 
 // IndexDirectory scans a directory recursively for .md files and upserts tasks into the DB
-func IndexDirectory(dirPath string, d *db.DB) error {
+func IndexDirectory(dirPath string, d *db.DB, cfg *config.Config) error {
 	// Find all .md files
 	var mdFiles []string
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
@@ -169,7 +172,7 @@ func IndexDirectory(dirPath string, d *db.DB) error {
 
 	// For each file, parse it and sync the tasks
 	for _, file := range mdFiles {
-		err := SyncBuffer(file, d)
+		err := SyncBuffer(file, d, cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error syncing file %s: %v\n", file, err)
 		}
@@ -178,8 +181,34 @@ func IndexDirectory(dirPath string, d *db.DB) error {
 	return nil
 }
 
+func applyAutoTags(task *parser.Task, filePath string, cfg *config.Config) bool {
+	if cfg == nil || len(cfg.AutoTags) == 0 {
+		return false
+	}
+
+	modified := false
+	for pattern, tagsToAdd := range cfg.AutoTags {
+		if strings.Contains(filePath, pattern) {
+			for _, tag := range tagsToAdd {
+				exists := false
+				for _, existingTag := range task.Tags {
+					if existingTag == tag {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					task.Tags = append(task.Tags, tag)
+					modified = true
+				}
+			}
+		}
+	}
+	return modified
+}
+
 // SyncBuffer reads a file, parses all tasks, and upserts them. It mimics `sync_buffer` from lua.
-func SyncBuffer(filePath string, d *db.DB) error {
+func SyncBuffer(filePath string, d *db.DB, cfg *config.Config) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -208,6 +237,9 @@ func SyncBuffer(filePath string, d *db.DB) error {
 			if task.ID == "" {
 				task.ID = parser.GenerateID()
 			}
+
+			// Apply auto tags
+			applyAutoTags(task, filePath, cfg)
 
 			// Format line to standardize position
 			newLine := parser.FormatLine(task)
