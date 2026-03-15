@@ -18,6 +18,8 @@ type InputModel struct {
 	suggestionIndex  int
 	activeSuggestion string
 	isCompleting     bool
+	PendingTasks     []string
+	Confirming       bool
 }
 
 func NewInputModel(dbConn *db.DB) InputModel {

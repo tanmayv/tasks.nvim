@@ -243,36 +243,80 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.isInputView {
+			// Handle confirmation first before we pass keystrokes to the text input
+			if m.inputModel.Confirming {
+				switch msg.String() {
+				case "y", "Y":
+					m.isInputView = false
+					m.inputModel.PendingTasks = nil
+					m.inputModel.Confirming = false
+					m.inputModel.textInput.SetValue("")
+					return m, nil
+				case "n", "N", "esc":
+					m.inputModel.Confirming = false
+					return m, nil
+				case "ctrl+c":
+					return m, tea.Quit
+				}
+				return m, nil // swallow everything else
+			}
+
 			// Record if we were completing before we pass the message down
 			wasCompleting := m.inputModel.isCompleting && len(m.inputModel.suggestions) > 0
 
-			// Pass to input model first to catch tab/enter for autocomplete
-			var cmd tea.Cmd
-			m.inputModel, cmd = m.inputModel.Update(msg)
-			
-			// Handle Input View specific escapes
+			// Handle Input View specific escapes BEFORE text input update
 			switch msg.String() {
-			case "esc":
+			case "esc", "ctrl+c":
+				val := m.inputModel.textInput.Value()
+				if len(m.inputModel.PendingTasks) > 0 || strings.TrimSpace(val) != "" {
+					m.inputModel.Confirming = true
+					return m, nil
+				}
+				if msg.String() == "ctrl+c" {
+					return m, tea.Quit
+				}
 				m.isInputView = false
 				m.inputModel.textInput.SetValue("")
 				return m, nil
+			case "q":
+				val := m.inputModel.textInput.Value()
+				if len(m.inputModel.PendingTasks) > 0 && val == "" {
+					m.inputModel.Confirming = true
+					return m, nil
+				}
+				// if val is not empty, let textinput handle typing 'q'
 			case "enter":
-				// If we just autocompleted, we don't want to submit yet
-				if !wasCompleting {
-					val := m.inputModel.textInput.Value()
-					if strings.TrimSpace(val) != "" {
+				// If we are autocompleting, don't submit task, let InputModel handle it
+				if wasCompleting {
+					break
+				}
+				
+				val := m.inputModel.textInput.Value()
+				if strings.TrimSpace(val) != "" {
+					m.inputModel.PendingTasks = append(m.inputModel.PendingTasks, strings.TrimSpace(val))
+					m.inputModel.textInput.SetValue("")
+					return m, nil
+				} else {
+					// Submitting all tasks
+					if len(m.inputModel.PendingTasks) > 0 {
 						cfg, _ := config.LoadConfig()
-						err := sync.AddTaskToInbox(val, m.inboxPath, m.dbConn, cfg)
-						if err != nil {
-							m.err = err
+						for _, taskDesc := range m.inputModel.PendingTasks {
+							err := sync.AddTaskToInbox(taskDesc, m.inboxPath, m.dbConn, cfg)
+							if err != nil {
+								m.err = err
+							}
 						}
 					}
 					m.isInputView = false
+					m.inputModel.PendingTasks = nil
 					m.inputModel.textInput.SetValue("")
 					return m, m.loadTasks() // reload
 				}
 			}
 
+			// Pass to input model
+			var cmd tea.Cmd
+			m.inputModel, cmd = m.inputModel.Update(msg)
 			return m, cmd
 		}
 
