@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -47,12 +48,38 @@ func (i item) FilterValue() string {
 	return filterStr
 }
 
-// Custom 2-line delegate
-type taskDelegate struct{}
+// Key bindings
+type keyMap struct {
+	toggle key.Binding
+	add    key.Binding
+	delete key.Binding
+}
 
-func (d taskDelegate) Height() int                             { return 2 }
-func (d taskDelegate) Spacing() int                            { return 1 }
-func (d taskDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func newKeyMap() *keyMap {
+	return &keyMap{
+		toggle: key.NewBinding(
+			key.WithKeys("space"),
+			key.WithHelp("space", "toggle"),
+		),
+		add: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "add"),
+		),
+		delete: key.NewBinding(
+			key.WithKeys("x", "d"),
+			key.WithHelp("x/d", "delete"),
+		),
+	}
+}
+
+// Custom 2-line delegate
+type taskDelegate struct {
+	keys *keyMap
+}
+
+func (d taskDelegate) Height() int                               { return 2 }
+func (d taskDelegate) Spacing() int                              { return 1 }
+func (d taskDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
 func (d taskDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
 	i, ok := listItem.(item)
 	if !ok {
@@ -133,18 +160,28 @@ type Model struct {
 	inboxPath   string
 	loaded      bool
 	err         error
+	keys        *keyMap
 	isInputView bool
 	inputModel  InputModel
 	program     *tea.Program
 }
 
 func NewModel(dbConn *db.DB, inboxPath string) *Model {
-	d := taskDelegate{}
+	keys := newKeyMap()
+	d := taskDelegate{keys: keys}
 	l := list.New([]list.Item{}, d, 0, 0)
 	l.Title = "Open Tasks"
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = lipgloss.NewStyle().Background(lipgloss.Color("#4169E1")).Foreground(lipgloss.Color("#FFF")).Padding(0, 1)
+
+	// Inject keys into list's help menu
+	l.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{keys.toggle, keys.add, keys.delete}
+	}
+	l.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{keys.toggle, keys.add, keys.delete}
+	}
 
 	return &Model{
 		list:        l,
@@ -152,6 +189,7 @@ func NewModel(dbConn *db.DB, inboxPath string) *Model {
 		inboxPath:   inboxPath,
 		isInputView: false,
 		inputModel:  NewInputModel(),
+		keys:        keys,
 	}
 }
 
@@ -212,13 +250,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle List View
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+c", "q"))):
 			// only quit if we aren't actively typing in the filter
 			if !m.list.SettingFilter() {
 				return m, tea.Quit
 			}
-		case " ":
+		case key.Matches(msg, m.keys.toggle):
 			// Toggle task status
 			if m.list.FilterState() == list.Filtering {
 				break
@@ -230,16 +268,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = err
 					return m, nil
 				}
-				// Reload after toggle
 				return m, m.loadTasks()
 			}
-		case "a":
+		case key.Matches(msg, m.keys.add):
 			if m.list.FilterState() == list.Filtering {
 				break
 			}
 			m.isInputView = true
 			m.inputModel.textInput.Focus()
 			return m, nil
+		case key.Matches(msg, m.keys.delete):
+			if m.list.FilterState() == list.Filtering {
+				break
+			}
+			if selected, ok := m.list.SelectedItem().(item); ok {
+				err := sync.DeleteTask(selected.task.ID, selected.task.FilePath, m.dbConn)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+				// Reload after toggle
+				return m, m.loadTasks()
+			}
 		}
 
 	case tea.WindowSizeMsg:

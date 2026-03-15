@@ -41,7 +41,11 @@ function M.tasks(opts)
 
   local output = vim.fn.system(cmd)
   if vim.v.shell_error ~= 0 then
-    vim.notify("Failed to fetch tasks: " .. output, vim.log.levels.ERROR)
+    if output:match("not found") or output:match("No such file") then
+      vim.notify("TaskManager: '" .. tm.config.cmd .. "' binary not found. Please install the task manager TUI companion app.", vim.log.levels.ERROR)
+    else
+      vim.notify("Failed to fetch tasks: " .. output, vim.log.levels.ERROR)
+    end
     return
   end
 
