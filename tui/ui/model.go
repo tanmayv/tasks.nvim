@@ -51,10 +51,11 @@ func (i item) FilterValue() string {
 
 // Key bindings
 type keyMap struct {
-	toggle key.Binding
-	add    key.Binding
-	delete key.Binding
-	edit   key.Binding
+	toggle    key.Binding
+	add       key.Binding
+	delete    key.Binding
+	edit      key.Binding
+	openNotes key.Binding
 }
 
 func newKeyMap() *keyMap {
@@ -73,7 +74,11 @@ func newKeyMap() *keyMap {
 		),
 		edit: key.NewBinding(
 			key.WithKeys("e", "enter"),
-			key.WithHelp("e/enter", "edit"),
+			key.WithHelp("e/enter", "edit task"),
+		),
+		openNotes: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "open notes"),
 		),
 	}
 }
@@ -189,10 +194,10 @@ func NewModel(dbConn *db.DB, inboxPath string, project string, statuses []string
 
 	// Inject keys into list's help menu
 	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit}
+		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit, keys.openNotes}
 	}
 	l.AdditionalShortHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit}
+		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit, keys.openNotes}
 	}
 
 	return &Model{
@@ -373,6 +378,59 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return ReloadMsg{}
 				})
+			}
+		case key.Matches(msg, m.keys.openNotes):
+			if m.list.FilterState() == list.Filtering {
+				break
+			}
+			if selected, ok := m.list.SelectedItem().(item); ok {
+				// Parse zk links from task description: [[...]]
+				var links []string
+				desc := selected.task.Description
+				for {
+					start := strings.Index(desc, "[[")
+					if start == -1 {
+						break
+					}
+					end := strings.Index(desc[start:], "]]")
+					if end == -1 {
+						break
+					}
+					link := desc[start+2 : start+end]
+					if link != "" {
+						links = append(links, link)
+					}
+					desc = desc[start+end+2:]
+				}
+
+				if len(links) > 0 {
+					// Ask zk to resolve the links into absolute paths
+					args := []string{"list", "--quiet", "--format", "{{absPath}}"}
+					args = append(args, links...)
+					zkCmd := exec.Command("zk", args...)
+					out, err := zkCmd.Output()
+					
+					if err == nil && len(out) > 0 {
+						absPaths := strings.Split(strings.TrimSpace(string(out)), "\n")
+						var validPaths []string
+						for _, p := range absPaths {
+							if !strings.HasPrefix(p, "zk: warning:") && p != "" {
+								validPaths = append(validPaths, p)
+							}
+						}
+
+						if len(validPaths) > 0 {
+							nvimArgs := append([]string{"-O"}, validPaths...) // -O opens in vertical splits
+							cmd := exec.Command("nvim", nvimArgs...)
+							return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+								if err != nil {
+									m.err = err
+								}
+								return ReloadMsg{}
+							})
+						}
+					}
+				}
 			}
 		}
 
