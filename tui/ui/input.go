@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -9,17 +11,56 @@ import (
 	"github.com/tanmayv/nvim-task-manager/tui/db"
 )
 
+type ZkNote struct {
+	Title        string
+	FilenameStem string
+	Display      string
+}
+
+type Suggestion struct {
+	Display string
+	Insert  string
+}
+
 type InputModel struct {
 	textInput        textinput.Model
 	dbConn           *db.DB
 	projects         []string
 	tags             []string
-	suggestions      []string
+	zkNotes          []ZkNote
+	suggestions      []Suggestion
 	suggestionIndex  int
-	activeSuggestion string
+	activeSuggestion Suggestion
 	isCompleting     bool
 	PendingTasks     []string
 	Confirming       bool
+}
+
+func fetchZkNotes() []ZkNote {
+	cmd := exec.Command("zk", "list", "--quiet", "--format", "{{title}}\t{{filenameStem}}")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	var notes []ZkNote
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "zk: warning:") || line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) == 2 {
+			title := strings.TrimSpace(parts[0])
+			stem := strings.TrimSpace(parts[1])
+			display := title
+			if display == "" {
+				display = stem
+			}
+			notes = append(notes, ZkNote{Title: title, FilenameStem: stem, Display: display})
+		}
+	}
+	return notes
 }
 
 func NewInputModel(dbConn *db.DB) InputModel {
@@ -43,11 +84,14 @@ func NewInputModel(dbConn *db.DB) InputModel {
 		}
 	}
 
+	zkNotes := fetchZkNotes()
+
 	return InputModel{
 		textInput:       ti,
 		dbConn:          dbConn,
 		projects:        projects,
 		tags:            tags,
+		zkNotes:         zkNotes,
 		suggestionIndex: 0,
 	}
 }
@@ -75,7 +119,6 @@ func (m *InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 			}
 		case "enter", "ctrl+y":
 			if m.isCompleting && len(m.suggestions) > 0 {
-				// Insert suggestion
 				val := m.textInput.Value()
 				cursor := m.textInput.Position()
 				
@@ -88,13 +131,7 @@ func (m *InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 				prefix := val[:start]
 				suffix := val[cursor:]
 				
-				insert := ""
-				currentWord := val[start:cursor]
-				if strings.HasPrefix(currentWord, "@") {
-					insert = "@" + m.activeSuggestion + " "
-				} else if strings.HasPrefix(currentWord, "#") {
-					insert = "#" + m.activeSuggestion + " "
-				}
+				insert := m.activeSuggestion.Insert + " "
 				
 				m.textInput.SetValue(prefix + insert + suffix)
 				m.textInput.SetCursor(len(prefix) + len(insert))
@@ -138,7 +175,7 @@ func (m *InputModel) updateSuggestions() {
 		prefix := strings.ToLower(currentWord[1:])
 		for _, p := range m.projects {
 			if strings.HasPrefix(strings.ToLower(p), prefix) {
-				m.suggestions = append(m.suggestions, p)
+				m.suggestions = append(m.suggestions, Suggestion{Display: "@" + p, Insert: "@" + p})
 			}
 		}
 	} else if strings.HasPrefix(currentWord, "#") && len(currentWord) > 0 {
@@ -146,7 +183,15 @@ func (m *InputModel) updateSuggestions() {
 		prefix := strings.ToLower(currentWord[1:])
 		for _, t := range m.tags {
 			if strings.HasPrefix(strings.ToLower(t), prefix) {
-				m.suggestions = append(m.suggestions, t)
+				m.suggestions = append(m.suggestions, Suggestion{Display: "#" + t, Insert: "#" + t})
+			}
+		}
+	} else if strings.HasPrefix(currentWord, "[[") && len(currentWord) > 1 {
+		m.isCompleting = true
+		prefix := strings.ToLower(currentWord[2:])
+		for _, n := range m.zkNotes {
+			if strings.HasPrefix(strings.ToLower(n.Display), prefix) || strings.HasPrefix(strings.ToLower(n.FilenameStem), prefix) {
+				m.suggestions = append(m.suggestions, Suggestion{Display: n.Display, Insert: "[[" + n.FilenameStem + "]]"})
 			}
 		}
 	}
@@ -158,7 +203,7 @@ func (m *InputModel) updateSuggestions() {
 		m.activeSuggestion = m.suggestions[m.suggestionIndex]
 	} else {
 		m.suggestionIndex = 0
-		m.activeSuggestion = ""
+		m.activeSuggestion = Suggestion{}
 	}
 }
 
@@ -178,7 +223,7 @@ func (m InputModel) View() string {
 			if len(displayTask) > 55 {
 				displayTask = displayTask[:52] + "..."
 			}
-			pendingViews = append(pendingViews, lipgloss.NewStyle().Foreground(lipgloss.Color("#6495ED")).Render(" " + string(rune(i+49)) + ". " + displayTask))
+			pendingViews = append(pendingViews, lipgloss.NewStyle().Foreground(lipgloss.Color("#6495ED")).Render(fmt.Sprintf(" %d. %s", i+1, displayTask)))
 		}
 	}
 
@@ -207,9 +252,15 @@ func (m InputModel) View() string {
 			} else {
 				style = style.Foreground(lipgloss.Color("#A9A9A9"))
 			}
-			suggestionViews = append(suggestionViews, style.Render(s))
+			suggestionViews = append(suggestionViews, style.Render(s.Display))
 		}
 		
+		displayCount := 5
+		if len(suggestionViews) > displayCount {
+			suggestionViews = suggestionViews[:displayCount]
+			suggestionViews = append(suggestionViews, lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Render("..."))
+		}
+
 		view = lipgloss.JoinVertical(
 			lipgloss.Left,
 			view,
