@@ -134,6 +134,7 @@ type Model struct {
 	err         error
 	isInputView bool
 	inputModel  InputModel
+	program     *tea.Program
 }
 
 func NewModel(dbConn *db.DB, inboxPath string) *Model {
@@ -169,6 +170,10 @@ func (m *Model) loadTasks() tea.Cmd {
 
 		return items
 	}
+}
+
+func (m *Model) SetProgram(p *tea.Program) {
+	m.program = p
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -239,6 +244,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h, v := docStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
 
+	case ReloadMsg:
+		return m, m.loadTasks()
 	case []list.Item:
 		m.list.SetItems(msg)
 		m.loaded = true
