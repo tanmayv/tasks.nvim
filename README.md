@@ -52,7 +52,6 @@ sudo mv task /usr/local/bin/
 ```
 Or if using Nix:
 ```bash
-cd tui
 nix build
 # Link the ./result/bin/task into your environment
 ```
