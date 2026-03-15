@@ -56,6 +56,7 @@ type keyMap struct {
 	delete    key.Binding
 	edit      key.Binding
 	openNotes key.Binding
+	reindex   key.Binding
 }
 
 func newKeyMap() *keyMap {
@@ -79,6 +80,10 @@ func newKeyMap() *keyMap {
 		openNotes: key.NewBinding(
 			key.WithKeys("n"),
 			key.WithHelp("n", "open notes"),
+		),
+		reindex: key.NewBinding(
+			key.WithKeys("I"), // Capital I
+			key.WithHelp("I", "reindex"),
 		),
 	}
 }
@@ -194,10 +199,10 @@ func NewModel(dbConn *db.DB, inboxPath string, project string, statuses []string
 
 	// Inject keys into list's help menu
 	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit, keys.openNotes}
+		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit, keys.openNotes, keys.reindex}
 	}
 	l.AdditionalShortHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit, keys.openNotes}
+		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit, keys.openNotes, keys.reindex}
 	}
 
 	return &Model{
@@ -432,6 +437,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+		case key.Matches(msg, m.keys.reindex):
+			if m.list.FilterState() == list.Filtering {
+				break
+			}
+			return m, m.reindexTasks()
 		}
 
 	case tea.WindowSizeMsg:
@@ -451,6 +461,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) reindexTasks() tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return err
+		}
+
+		if err := m.dbConn.ClearTasks(); err != nil {
+			return err
+		}
+
+		for _, dir := range cfg.Directories {
+			_ = sync.IndexDirectory(dir, m.dbConn, cfg)
+		}
+
+		return ReloadMsg{}
+	}
 }
 
 func (m *Model) View() string {

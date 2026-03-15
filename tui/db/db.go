@@ -425,3 +425,24 @@ func (d *DB) GetTags() ([]string, error) {
 	}
 	return tags, nil
 }
+
+// ClearTasks removes all tasks, tags, and metadata to prepare for a clean reindex.
+func (d *DB) ClearTasks() error {
+	tx, err := d.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM task_tags"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM task_metadata"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM tasks"); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}

@@ -61,6 +61,7 @@ Once installed, use `~/.config/task-manager-tui/config.json` to configure the da
 {
   "db_path": "~/.local/share/nvim/task_manager.db",
   "inbox_file": "~/tasks/inbox.md",
+  "directories": ["~/tasks"],
   "auto_tags": {
     "/daily/": ["daily"],
     "/work/": ["work"]
