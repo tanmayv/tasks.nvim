@@ -200,7 +200,7 @@ func NewModel(dbConn *db.DB, inboxPath string, project string, statuses []string
 		dbConn:        dbConn,
 		inboxPath:     inboxPath,
 		isInputView:   false,
-		inputModel:    NewInputModel(),
+		inputModel:    NewInputModel(dbConn),
 		keys:          keys,
 		filterProject: project,
 		filterStatus:  statuses,
@@ -243,29 +243,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.isInputView {
-			// Handle Input View
+			// Pass to input model first to catch tab/enter for autocomplete
+			var cmd tea.Cmd
+			m.inputModel, cmd = m.inputModel.Update(msg)
+			
+			// Handle Input View specific escapes
 			switch msg.String() {
 			case "esc":
 				m.isInputView = false
 				m.inputModel.textInput.SetValue("")
 				return m, nil
 			case "enter":
-				val := m.inputModel.textInput.Value()
-				if strings.TrimSpace(val) != "" {
-					cfg, _ := config.LoadConfig()
-					err := sync.AddTaskToInbox(val, m.inboxPath, m.dbConn, cfg)
-					if err != nil {
-						m.err = err
+				// If we just autocompleted, we don't want to submit yet
+				if !m.inputModel.isCompleting && len(m.inputModel.suggestions) == 0 {
+					val := m.inputModel.textInput.Value()
+					if strings.TrimSpace(val) != "" {
+						cfg, _ := config.LoadConfig()
+						err := sync.AddTaskToInbox(val, m.inboxPath, m.dbConn, cfg)
+						if err != nil {
+							m.err = err
+						}
 					}
+					m.isInputView = false
+					m.inputModel.textInput.SetValue("")
+					return m, m.loadTasks() // reload
 				}
-				m.isInputView = false
-				m.inputModel.textInput.SetValue("")
-				return m, m.loadTasks() // reload
 			}
 
-			// Pass to input model
-			var cmd tea.Cmd
-			m.inputModel.textInput, cmd = m.inputModel.textInput.Update(msg)
 			return m, cmd
 		}
 

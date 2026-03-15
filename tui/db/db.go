@@ -344,3 +344,37 @@ func (d *DB) DeleteMissingTasksInFile(filePath string, currentIDs map[string]boo
 
 	return nil
 }
+
+func (d *DB) GetProjects() ([]string, error) {
+	rows, err := d.DB.Query(`SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var projects []string
+	for rows.Next() {
+		var project string
+		if err := rows.Scan(&project); err == nil {
+			projects = append(projects, project)
+		}
+	}
+	return projects, nil
+}
+
+func (d *DB) GetTags() ([]string, error) {
+	rows, err := d.DB.Query(`SELECT DISTINCT tag_name FROM task_tags ORDER BY tag_name ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err == nil {
+			tags = append(tags, tag)
+		}
+	}
+	return tags, nil
+}
