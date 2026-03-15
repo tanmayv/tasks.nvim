@@ -60,16 +60,16 @@ type keyMap struct {
 func newKeyMap() *keyMap {
 	return &keyMap{
 		toggle: key.NewBinding(
-			key.WithKeys("space"),
-			key.WithHelp("space", "toggle"),
+			key.WithKeys("x"),
+			key.WithHelp("x", "mark done"),
 		),
 		add: key.NewBinding(
 			key.WithKeys("a"),
 			key.WithHelp("a", "add"),
 		),
 		delete: key.NewBinding(
-			key.WithKeys("x", "d"),
-			key.WithHelp("x/d", "delete"),
+			key.WithKeys("d"),
+			key.WithHelp("d", "delete"),
 		),
 		edit: key.NewBinding(
 			key.WithKeys("e", "enter"),
