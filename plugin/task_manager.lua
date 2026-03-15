@@ -44,7 +44,7 @@ vim.api.nvim_create_autocmd("BufEnter", {
   end
 })
 
-vim.api.nvim_create_autocmd("BufWritePre", {
+vim.api.nvim_create_autocmd("BufWritePost", {
   group = group,
   pattern = "*.md",
   callback = function(args)

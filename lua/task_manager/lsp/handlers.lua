@@ -1,28 +1,17 @@
 local M = {}
-local db = require("task_manager.db")
 local rpc = require("task_manager.lsp.rpc")
+local parser = require("task_manager.parser")
 
-local _db_initialized = false
-
--- Fallback initialization
-local function ensure_db()
-  if not _db_initialized then
-    local path = os.getenv("HOME") .. "/.local/share/nvim/task_manager.db"
-    db.init(path)
-    _db_initialized = true
-  end
-end
+local _cmd = "task"
 
 function M.update_config(config)
-  if config and config.db_path then
-    db.init(config.db_path)
-    _db_initialized = true
+  if config and config.cmd then
+    _cmd = config.cmd
   end
 end
 
 -- Get completions based on the cursor position
 function M.completion(params, documents)
-  ensure_db()
   local uri = params.textDocument.uri
   local position = params.position
   local text = documents[uri]
@@ -51,16 +40,26 @@ function M.completion(params, documents)
 
   local items = {}
 
+  -- Fetch meta if needed
+  local meta = nil
+  if trigger_word:match("^@(.*)$") or trigger_word:match("^#(.*)$") or trigger_word:match("^tag:(.*)$") then
+    local handle = io.popen(_cmd .. " meta --json 2>/dev/null")
+    if handle then
+      local result = handle:read("*a")
+      handle:close()
+      local ok, decoded = pcall(vim.fn.json_decode, result)
+      if ok and decoded then
+        meta = decoded
+      end
+    end
+  end
+
   -- Complete projects
   if trigger_word:match("^@(.*)$") then
-    -- Note: using lua tables filtering here instead of raw sql due to sqlite.lua setup
-    local all_tasks = db.db.tasks:get({ select = { "project" } }) or {}
-    local projects_seen = {}
-    for _, t in ipairs(all_tasks) do
-      if t.project and not projects_seen[t.project] then
-        projects_seen[t.project] = true
+    if meta and meta.projects then
+      for _, p in ipairs(meta.projects) do
         table.insert(items, {
-          label = t.project,
+          label = p,
           kind = 21, -- Constant
           detail = "Project"
         })
@@ -69,13 +68,10 @@ function M.completion(params, documents)
   
   -- Complete tags
   elseif trigger_word:match("^#(.*)$") or trigger_word:match("^tag:(.*)$") then
-    local all_tags = db.db.task_tags:get({ select = { "tag_name" } }) or {}
-    local tags_seen = {}
-    for _, t in ipairs(all_tags) do
-      if t.tag_name and not tags_seen[t.tag_name] then
-        tags_seen[t.tag_name] = true
+    if meta and meta.tags then
+      for _, t in ipairs(meta.tags) do
         table.insert(items, {
-          label = t.tag_name,
+          label = t,
           kind = 21, -- Constant
           detail = "Tag"
         })
@@ -96,10 +92,8 @@ end
 
 -- Parse lines for diagnostics (overdue or urgent hints)
 function M.diagnostics(uri, text)
-  ensure_db()
   if not text then return end
 
-  local parser = require("task_manager.parser")
   local diagnostics = {}
   
   local line_num = 0

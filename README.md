@@ -20,7 +20,6 @@ You can copy this directly into your `lua/plugins/task_manager.lua` file:
 return {
   "tanmayv/nvim-task-manager",
   dependencies = {
-    "kkharji/sqlite.lua",
     "nvim-telescope/telescope.nvim",
     "nvim-lua/plenary.nvim",
   },
@@ -34,20 +33,35 @@ return {
   },
   config = function()
     require("task_manager").setup({
+      cmd = "task", -- Ensure the task companion binary is in your PATH
       directories = { "~/tasks" },
-      db_path = vim.fn.stdpath("data") .. "/task_manager.db",
-      inbox_file = "~/tasks/inbox.md",
-      
-      -- Automatically attach tags based on the markdown file's path
-      auto_tags = {
-        ["/daily/"] = { "daily" },
-        ["/work/"] = { "work" }
-      }
     })
     
     -- Optional: Initialize LSP for autocomplete & diagnostics
     require("task_manager").setup_lsp()
   end
+}
+```
+
+### Pre-requisites (Companion TUI & Backend)
+This Neovim plugin requires the `task` CLI backend to function. You must compile or install the Go companion tool.
+```bash
+cd tui
+go build -o task .
+sudo mv task /usr/local/bin/
+```
+Or if using Nix:
+```bash
+cd tui
+nix build
+# Link the ./result/bin/task into your environment
+```
+
+Once installed, use `~/.config/task-manager-tui/config.json` to configure the database path and inbox file.
+```json
+{
+  "db_path": "~/.local/share/nvim/task_manager.db",
+  "inbox_file": "~/tasks/inbox.md"
 }
 ```
 

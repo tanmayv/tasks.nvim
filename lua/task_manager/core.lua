@@ -4,81 +4,54 @@ local utils = require("task_manager.utils")
 local M = {}
 
 function M.toggle_done(file_path, line_number)
-  local bufnr = utils.ensure_buffer_loaded(file_path)
+  local bufnr = vim.fn.bufnr(file_path)
+  if bufnr ~= -1 and vim.api.nvim_buf_get_option(bufnr, 'modified') then
+    -- Save buffer first so CLI operates on latest state
+    vim.cmd("silent! write " .. file_path)
+  end
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, line_number - 1, line_number, false)
   if not lines or #lines == 0 then return false end
   
   local line = lines[1]
   local task = parser.parse_line(line)
+  if not task or not task.id then return false end
   
-  if not task then return false end
+  local tm = require("task_manager")
+  local job_id = vim.fn.jobstart({ tm.config.cmd, "toggle", task.id, file_path }, {
+    on_exit = function(_, code)
+      if code == 0 then
+        vim.schedule(function()
+          if bufnr ~= -1 then
+            vim.cmd("checktime " .. bufnr)
+          end
+        end)
+      end
+    end
+  })
   
-  -- Toggle logic
-  if task.status == "done" then
-    task.status = "todo"
-    task.metadata["done"] = nil
-  else
-    task.status = "done"
-    -- Use UTC date for consistency
-    task.metadata["done"] = os.date("!%Y-%m-%d")
-  end
-  
-  -- Reconstruct line
-  local prefix = line:sub(1, task.prefix_length - 3)
-  local new_line = parser.format_line(prefix, task.status, task)
-  
-  -- Update buffer
-  vim.api.nvim_buf_set_lines(bufnr, line_number - 1, line_number, false, { new_line })
-  
-  -- Check if we can write the file (in tests we use non-file buffers)
-  utils.save_buffer(bufnr)
-  
-  return true
+  return job_id > 0
 end
 
 function M.add_task(description)
   if not description or description == "" then return false end
 
   local tm = require("task_manager")
-  local configured_inbox = tm.config.inbox_file
+  vim.fn.jobstart({ tm.config.cmd, "add", description }, {
+    on_exit = function(_, code)
+      if code == 0 then
+        vim.schedule(function()
+          vim.notify("Task added via CLI", vim.log.levels.INFO)
+          vim.cmd("checktime")
+        end)
+      else
+        vim.schedule(function()
+          vim.notify("Failed to add task via CLI", vim.log.levels.ERROR)
+        end)
+      end
+    end
+  })
   
-  -- Safeguard against accidental table/list configuration
-  if type(configured_inbox) == "table" then
-    configured_inbox = configured_inbox[1]
-  end
-  
-  -- Expand might return a list if someone passed wildcards accidentally, take first
-  local expanded = vim.fn.expand(configured_inbox)
-  if type(expanded) == "table" then
-    expanded = expanded[1]
-  end
-  
-  local inbox_path = expanded
-  
-  -- Create parent directory if it doesn't exist
-  local dir = vim.fn.fnamemodify(inbox_path, ":h")
-  if vim.fn.isdirectory(dir) == 0 then
-    vim.fn.mkdir(dir, "p")
-  end
-  
-  -- Open or create the buffer
-  local bufnr = utils.ensure_buffer_loaded(inbox_path)
-  
-  -- Add the new task line
-  local new_task_line = "- [ ] " .. description
-  local line_count = vim.api.nvim_buf_line_count(bufnr)
-  
-  -- Append to the end
-  vim.api.nvim_buf_set_lines(bufnr, line_count, line_count, false, { new_task_line })
-  
-  -- Sync the buffer to parse metadata, add ID, and save to DB
-  require("task_manager.sync").sync_buffer(bufnr)
-  
-  -- Save the file
-  utils.save_buffer(bufnr)
-  
-  vim.notify("Added task to " .. vim.fn.fnamemodify(inbox_path, ":t"), vim.log.levels.INFO)
   return true
 end
 
@@ -221,110 +194,35 @@ end
 
 function M.apply_editor_changes(bufnr)
   local origins = vim.b[bufnr].task_origins or {}
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   
-  local current_tasks = {}
-  local parsed_current = {}
+  -- Write edited lines to temp file
+  local edited_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local edited_temp = vim.fn.tempname()
+  vim.fn.writefile(edited_lines, edited_temp)
   
-  -- 1. Parse current buffer to find what tasks still exist and what new ones were added
-  for _, line in ipairs(lines) do
-    if not line:match("^%s*$") and not line:match("^#") then
-      local task = parser.parse_line(line)
-      if task then
-        if task.id then
-          current_tasks[task.id] = { line = line, task = task }
+  -- Write origins to temp JSON file
+  local origins_temp = vim.fn.tempname()
+  local json_origins = vim.fn.json_encode(origins)
+  vim.fn.writefile({json_origins}, origins_temp)
+  
+  local tm = require("task_manager")
+  vim.fn.jobstart({ tm.config.cmd, "bulk-update", "--edited-file", edited_temp, "--origins", origins_temp }, {
+    on_exit = function(_, code)
+      vim.schedule(function()
+        -- Cleanup temp files
+        os.remove(edited_temp)
+        os.remove(origins_temp)
+        
+        if code == 0 then
+          vim.notify("Task changes successfully synced!", vim.log.levels.INFO)
+          -- Reload all buffers that might have been modified
+          vim.cmd("checktime")
         else
-          -- This is a newly added task line without an ID
-          -- M.add_task appends `- [ ]` automatically, so we just want to pass the raw description
-          local parts = parser.format_description(task)
-          local desc = table.concat(parts, " ")
-          
-          M.add_task(desc)
+          vim.notify("Failed to apply bulk update", vim.log.levels.ERROR)
         end
-      end
+      end)
     end
-  end
-
-  -- 2. Figure out deletions and updates grouped by file
-  local file_changes = {}
-  
-  for orig_id, origin in pairs(origins) do
-    if not file_changes[origin.file_path] then
-      file_changes[origin.file_path] = { deletes = {}, updates = {} }
-    end
-    
-    local current = current_tasks[orig_id]
-    
-    if not current then
-      -- Task was deleted from the editor buffer
-      table.insert(file_changes[origin.file_path].deletes, origin)
-    else
-      -- Task exists, check if modified.
-      -- To simplify, we'll just check if the raw line changed.
-      -- We must re-format the parsed task to standardize it before comparing, 
-      -- or just compare the literal line strings if we trust the user.
-      -- Let's compare raw line strings. The user's new string is `current.line`.
-      if origin.initial_line ~= current.line then
-        table.insert(file_changes[origin.file_path].updates, {
-          origin = origin,
-          new_task = current.task
-        })
-      end
-    end
-  end
-
-  -- 3. Apply changes to files
-  for file_path, changes in pairs(file_changes) do
-    if #changes.deletes > 0 or #changes.updates > 0 then
-      -- Load the buffer for this file
-      local target_buf = utils.ensure_buffer_loaded(file_path)
-      
-      local target_lines = vim.api.nvim_buf_get_lines(target_buf, 0, -1, false)
-      
-      -- We must find lines by exact string match because line numbers might have shifted
-      -- since they opened the editor buffer.
-      
-      -- Apply updates
-      for _, update in ipairs(changes.updates) do
-        for i, t_line in ipairs(target_lines) do
-          local target_task = parser.parse_line(t_line)
-          if target_task and target_task.id == update.origin.id then
-            local prefix = t_line:sub(1, target_task.prefix_length - 3)
-            target_lines[i] = parser.format_line(prefix, update.new_task.status, update.new_task)
-            break
-          end
-        end
-      end
-      
-      -- Apply deletes (mark them as nil first to not mess up iteration indices)
-      for _, del in ipairs(changes.deletes) do
-        for i, t_line in ipairs(target_lines) do
-          local target_task = parser.parse_line(t_line)
-          if target_task and target_task.id == del.id then
-            target_lines[i] = false -- Mark for deletion
-            break
-          end
-        end
-      end
-      
-      -- Rebuild final lines array
-      local final_lines = {}
-      for _, l in ipairs(target_lines) do
-        if l ~= false then
-          table.insert(final_lines, l)
-        end
-      end
-      
-      -- Write back to buffer
-      vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, final_lines)
-      
-      -- Save to trigger sync
-      require("task_manager.sync").sync_buffer(target_buf)
-      utils.save_buffer(target_buf)
-    end
-  end
-  
-  vim.notify("Task changes successfully synced!", vim.log.levels.INFO)
+  })
 end
 
 return M

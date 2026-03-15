@@ -1,42 +1,46 @@
-local db = require("task_manager.db")
 local sync = require("task_manager.sync")
 
 local M = {}
 
 M.config = {
-  db_path = vim.fn.stdpath("data") .. "/task_manager.db",
+  cmd = "task",
   directories = { vim.fn.expand("~/tasks") },
-  inbox_file = vim.fn.expand("~/tasks/inbox.md"),
-  auto_tags = {}, -- e.g., { ["/daily/"] = { "daily" } }
 }
+
+local db_watcher = nil
 
 function M.setup(opts)
   if opts then
     M.config = vim.tbl_deep_extend("force", M.config, opts)
   end
   
-  -- Initialize db
-  local ok, err = pcall(function()
-    db.init(M.config.db_path)
-    -- Test schema by doing a dummy select
-    db.db.tasks:get({ select = { "start_date" }, limit = 1 })
-  end)
-
-  if not ok then
-    -- Schedule the prompt to run after UI is fully initialized
-    vim.schedule(function()
-      local msg = string.format("TaskManager: Database schema is outdated (missing start_date). Type 'yes' to delete %s and recreate it.", M.config.db_path)
-      local input = vim.fn.input(msg .. " ")
-      if input == "yes" then
-        os.remove(M.config.db_path)
-        db.init(M.config.db_path)
-        vim.notify("TaskManager database recreated.", vim.log.levels.INFO)
-        M.index_tasks()
-      else
-        vim.notify("TaskManager: Database recreation cancelled. Plugin may not work correctly.", vim.log.levels.WARN)
-      end
-    end)
+  if vim.fn.executable(M.config.cmd) == 0 then
+    vim.notify(string.format("TaskManager: '%s' binary not found. Please install the task manager TUI companion app and ensure it is in your PATH.", M.config.cmd), vim.log.levels.WARN)
+  else
+    -- Start db watcher to reload buffers/telescope if another instance modifies tasks
+    M.start_watcher()
   end
+end
+
+function M.start_watcher()
+  local db_path = vim.fn.expand("~/.local/share/nvim/task_manager.db")
+  -- In case the user changed it in config.json, we'll try to read it via `task meta --json` ? 
+  -- We don't have an endpoint for config yet. Assume default for now.
+  local uv = vim.uv or vim.loop
+  if not uv then return end
+
+  -- Check if db exists
+  if vim.fn.filereadable(db_path) == 0 then return end
+
+  db_watcher = uv.new_fs_event()
+  db_watcher:start(db_path, {}, function(err, filename, events)
+    if err then return end
+    vim.schedule(function()
+      vim.api.nvim_exec_autocmds("User", { pattern = "TaskManagerUpdated" })
+      -- We can optionally checktime here, but checktime checks file changes on disk, not DB changes.
+      -- The DB watcher is great to trigger Telescope/LSP refresh.
+    end)
+  end)
 end
 
 function M.sync_current_buffer(bufnr)
@@ -46,7 +50,7 @@ end
 function M.index_tasks()
   for _, dir in ipairs(M.config.directories) do
     local expanded_dir = vim.fn.expand(dir)
-    sync.index_directory(expanded_dir)
+    vim.fn.system({ M.config.cmd, "index", expanded_dir })
   end
   vim.notify("TaskManager: All tasks successfully indexed!", vim.log.levels.INFO)
 end
@@ -65,12 +69,9 @@ function M.setup_lsp()
   local script_path = debug.getinfo(1, "S").source:sub(2)
   local plugin_root = script_path:match("(.*)/lua/task_manager/init%.lua")
   if not plugin_root then
-    -- Fallback if pattern matching fails
     plugin_root = vim.fn.fnamemodify(script_path, ":h:h:h")
   end
   
-  -- Use nvim -l to execute the lua script, ensuring we have a Lua environment
-  -- and access to neovim's standard library if needed
   local cmd = { "nvim", "-l", plugin_root .. "/bin/task_manager_lsp.lua" }
 
   local lsp_group = vim.api.nvim_create_augroup("TaskManagerLSP", { clear = true })
@@ -85,13 +86,10 @@ function M.setup_lsp()
       if filetype == "task_add" or vim.b[args.buf].is_task_manager_editor then
         should_attach = true
       else
-        -- Check if file is in our managed directories before attaching LSP
         local file_path = vim.api.nvim_buf_get_name(args.buf)
         if M.is_managed_file(file_path) then
           should_attach = true
         end
-        
-        -- Also attach if it's our special task input buffer just in case
         if vim.b[args.buf].is_task_manager_input then
           should_attach = true
         end
@@ -101,10 +99,10 @@ function M.setup_lsp()
         vim.lsp.start({
           name = "task-manager-lsp",
           cmd = cmd,
-          root_dir = vim.fn.expand(M.config.directories[1]), -- Arbitrary root
+          root_dir = vim.fn.expand(M.config.directories[1]),
           settings = {
             task_manager = {
-              db_path = M.config.db_path
+              cmd = M.config.cmd
             }
           }
         })

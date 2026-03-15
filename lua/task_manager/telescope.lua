@@ -14,15 +14,43 @@ function M.tasks(opts)
   local entry_display = require("telescope.pickers.entry_display")
   local actions = require("telescope.actions")
   local action_state = require("telescope.actions.state")
-  
-  local db = require("task_manager.db")
+  local tm = require("task_manager")
   
   -- Default to open tasks if status is not explicitly requested
-  if not opts.status then
-    opts.status = { "todo", "in_progress" }
+  local status_args = {}
+  if opts.status then
+    for _, s in ipairs(opts.status) do
+      table.insert(status_args, "--status")
+      table.insert(status_args, s)
+    end
+  else
+    table.insert(status_args, "--status")
+    table.insert(status_args, "todo")
+    table.insert(status_args, "--status")
+    table.insert(status_args, "in_progress")
   end
-  
-  local tasks = db.get_tasks(opts)
+
+  local cmd = { tm.config.cmd, "list", "--json" }
+  for _, arg in ipairs(status_args) do
+    table.insert(cmd, arg)
+  end
+  if opts.project then
+    table.insert(cmd, "--project")
+    table.insert(cmd, opts.project)
+  end
+
+  local output = vim.fn.system(cmd)
+  if vim.v.shell_error ~= 0 then
+    vim.notify("Failed to fetch tasks: " .. output, vim.log.levels.ERROR)
+    return
+  end
+
+  if output == "" or output == "null" or output == "[]\n" then
+    vim.notify("No tasks found matching criteria.", vim.log.levels.INFO)
+    return
+  end
+
+  local tasks = vim.fn.json_decode(output)
   if not tasks or #tasks == 0 then
     vim.notify("No tasks found matching criteria.", vim.log.levels.INFO)
     return
@@ -43,11 +71,11 @@ function M.tasks(opts)
   local function make_display(entry)
     local task = entry.value
     
-    local score_str = string.format("[%d]", task.score or 0)
+    local score_str = string.format("[%d]", task.Score or 0)
     local hl_score = "TelescopeResultsNumber"
-    if task.score and task.score > 100 then
+    if task.Score and task.Score > 100 then
       hl_score = "DiagnosticError" -- Highlight urgent tasks in red
-    elseif task.score and task.score > 50 then
+    elseif task.Score and task.Score > 50 then
       hl_score = "DiagnosticWarn"  -- Highlight medium-urgent in yellow
     end
     
@@ -58,19 +86,19 @@ function M.tasks(opts)
       cancelled = "[-]"
     }
     
-    local status_str = status_map[task.status] or "[?]"
+    local status_str = status_map[task.Status] or "[?]"
     local hl_status = "TelescopeResultsIdentifier"
-    if task.status == "done" then hl_status = "TelescopeResultsComment" end
+    if task.Status == "done" then hl_status = "TelescopeResultsComment" end
     
-    local project_str = task.project and ("@" .. task.project) or ""
+    local project_str = task.Project and task.Project ~= "" and ("@" .. task.Project) or ""
     local tags_str = ""
-    if task.tags and #task.tags > 0 then
-      tags_str = "#" .. table.concat(task.tags, " #")
+    if task.Tags and #task.Tags > 0 then
+      tags_str = "#" .. table.concat(task.Tags, " #")
     end
     
     -- Extract filename from path for concise display
-    local filename = vim.fn.fnamemodify(task.file_path, ":t")
-    local context_str = string.format("(%s:%d)", filename, task.line_number)
+    local filename = vim.fn.fnamemodify(task.FilePath, ":t")
+    local context_str = string.format("(%s:%d)", filename, task.LineNumber)
 
     return displayer({
       { score_str, hl_score },
@@ -78,7 +106,7 @@ function M.tasks(opts)
       { project_str, "TelescopeResultsConstant" },
       { tags_str, "TelescopeResultsSpecialComment" },
       { context_str, "TelescopeResultsComment" },
-      task.description,
+      task.Description,
     })
   end
 
@@ -88,18 +116,18 @@ function M.tasks(opts)
       results = tasks,
       entry_maker = function(task)
         -- Combine fields for fuzzy searching
-        local search_str = task.description
-        if task.project then search_str = search_str .. " @" .. task.project end
-        if task.tags and #task.tags > 0 then
-          search_str = search_str .. " #" .. table.concat(task.tags, " #")
+        local search_str = task.Description
+        if task.Project and task.Project ~= "" then search_str = search_str .. " @" .. task.Project end
+        if task.Tags and #task.Tags > 0 then
+          search_str = search_str .. " #" .. table.concat(task.Tags, " #")
         end
         
         return {
           value = task,
           display = make_display,
           ordinal = search_str,
-          filename = task.file_path,
-          lnum = task.line_number,
+          filename = task.FilePath,
+          lnum = task.LineNumber,
           col = 1,
         }
       end,
@@ -157,17 +185,8 @@ function M.tasks(opts)
         end
         
         if toggled_count > 0 then
-          -- Re-fetch tasks based on original options
-          local updated_tasks = db.get_tasks(opts)
-          
-          current_picker:refresh(
-            finders.new_table({
-              results = updated_tasks,
-              entry_maker = current_picker.finder.entry_maker,
-            }),
-            { reset_prompt = false }
-          )
-          
+          -- Close picker so user can see it toggle
+          actions.close(prompt_bufnr)
           if toggled_count == 1 then
             vim.notify("Task state toggled!", vim.log.levels.INFO)
           else
@@ -220,14 +239,28 @@ function M.tasks(opts)
         
         for _, selection in ipairs(selections_to_copy) do
           local task = selection.value
-          local line = parser.format_line("- ", task.status, task)
+          
+          -- Map Go JSON to Lua format for parser.format_line
+          local lua_task = {
+            id = task.ID,
+            status = task.Status,
+            description = task.Description,
+            project = task.Project ~= "" and task.Project or nil,
+            tags = task.Tags or {},
+            priority = task.Priority ~= "" and task.Priority or nil,
+            due_date = task.DueDate ~= "" and task.DueDate or nil,
+            start_date = task.StartDate ~= "" and task.StartDate or nil,
+            metadata = task.Metadata or {}
+          }
+          
+          local line = parser.format_line("- ", lua_task.status, lua_task)
           table.insert(lines, line)
           
           -- Save origin tracking information
-          origins[task.id] = {
-            file_path = task.file_path,
+          origins[task.ID] = {
+            file_path = task.FilePath,
             initial_line = line,
-            id = task.id
+            id = task.ID
           }
           current_line = current_line + 1
         end
