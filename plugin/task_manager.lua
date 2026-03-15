@@ -20,16 +20,14 @@ vim.api.nvim_create_autocmd("ColorScheme", {
 -- Force an initial load of colors immediately
 vim.cmd("doautocmd ColorScheme")
 
-vim.api.nvim_create_autocmd("BufEnter", {
-  group = group,
-  pattern = "*.md",
-  callback = function()
-    -- Only apply syntax highlighting to actual task files
-    local tm = require("task_manager")
-    local file_path = vim.api.nvim_buf_get_name(0)
-    local in_dir = tm.is_managed_file(file_path)
-    
-    if in_dir or vim.b.is_task_manager_input or vim.b.is_task_manager_editor then
+local function apply_syntax(bufnr)
+  -- Only apply syntax highlighting to actual task files
+  local tm = require("task_manager")
+  local file_path = vim.api.nvim_buf_get_name(bufnr)
+  local in_dir = tm.is_managed_file(file_path)
+  
+  if in_dir or vim.b[bufnr].is_task_manager_input or vim.b[bufnr].is_task_manager_editor then
+    vim.api.nvim_buf_call(bufnr, function()
       -- Apply regex based syntax matches
       vim.cmd([[
         syntax match TaskManagerProject /@[a-zA-Z0-9_-]\+/
@@ -40,9 +38,27 @@ vim.api.nvim_create_autocmd("BufEnter", {
         syntax match TaskManagerMetadata /\<[bcl|done]\+:[a-zA-Z0-9_-]\+/
         syntax match TaskManagerPipe /|/
       ]])
-    end
+    end)
+  end
+end
+
+vim.api.nvim_create_autocmd("BufEnter", {
+  group = group,
+  pattern = "*.md",
+  callback = function(args)
+    apply_syntax(args.buf)
   end
 })
+
+-- Apply syntax to any already opened buffers (handles lazy-loading scenarios)
+for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+  if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
+    local file_path = vim.api.nvim_buf_get_name(bufnr)
+    if file_path:match("%.md$") then
+      apply_syntax(bufnr)
+    end
+  end
+end
 
 vim.api.nvim_create_autocmd("BufWritePost", {
   group = group,

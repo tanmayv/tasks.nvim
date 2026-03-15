@@ -76,39 +76,56 @@ function M.setup_lsp()
 
   local lsp_group = vim.api.nvim_create_augroup("TaskManagerLSP", { clear = true })
   
+  local function try_attach(bufnr)
+    local ok, filetype = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
+    if not ok then return end
+    
+    local should_attach = false
+    
+    if filetype == "task_add" or vim.b[bufnr].is_task_manager_editor then
+      should_attach = true
+    else
+      local file_path = vim.api.nvim_buf_get_name(bufnr)
+      if M.is_managed_file(file_path) then
+        should_attach = true
+      end
+      if vim.b[bufnr].is_task_manager_input then
+        should_attach = true
+      end
+    end
+    
+    if should_attach then
+      vim.lsp.start({
+        name = "task-manager-lsp",
+        cmd = cmd,
+        root_dir = vim.fn.expand(M.config.directories[1]),
+        settings = {
+          task_manager = {
+            cmd = M.config.cmd
+          }
+        }
+      }, { bufnr = bufnr })
+    end
+  end
+  
   vim.api.nvim_create_autocmd("FileType", {
     group = lsp_group,
     pattern = { "markdown", "task_add" },
     callback = function(args)
-      local filetype = vim.api.nvim_buf_get_option(args.buf, "filetype")
-      local should_attach = false
-      
-      if filetype == "task_add" or vim.b[args.buf].is_task_manager_editor then
-        should_attach = true
-      else
-        local file_path = vim.api.nvim_buf_get_name(args.buf)
-        if M.is_managed_file(file_path) then
-          should_attach = true
-        end
-        if vim.b[args.buf].is_task_manager_input then
-          should_attach = true
-        end
-      end
-      
-      if should_attach then
-        vim.lsp.start({
-          name = "task-manager-lsp",
-          cmd = cmd,
-          root_dir = vim.fn.expand(M.config.directories[1]),
-          settings = {
-            task_manager = {
-              cmd = M.config.cmd
-            }
-          }
-        })
-      end
+      try_attach(args.buf)
     end,
   })
+
+  -- If the plugin was lazy-loaded on FileType, the event might have already fired
+  -- for the current buffer. Check and attach to existing open buffers.
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr) then
+      local ok, filetype = pcall(vim.api.nvim_buf_get_option, bufnr, "filetype")
+      if ok and (filetype == "markdown" or filetype == "task_add") then
+        try_attach(bufnr)
+      end
+    end
+  end
 end
 
 return M
