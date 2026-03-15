@@ -13,7 +13,7 @@ import (
 
 type ZkNote struct {
 	Title        string
-	FilenameStem string
+	Path         string
 	Display      string
 }
 
@@ -37,7 +37,7 @@ type InputModel struct {
 }
 
 func fetchZkNotes() []ZkNote {
-	cmd := exec.Command("zk", "list", "--quiet", "--format", "{{title}}\t{{filenameStem}}")
+	cmd := exec.Command("zk", "list", "--quiet", "--format", "{{title}}\t{{path}}")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
@@ -52,12 +52,12 @@ func fetchZkNotes() []ZkNote {
 		parts := strings.Split(line, "\t")
 		if len(parts) == 2 {
 			title := strings.TrimSpace(parts[0])
-			stem := strings.TrimSpace(parts[1])
+			path := strings.TrimSpace(parts[1])
 			display := title
 			if display == "" {
-				display = stem
+				display = path
 			}
-			notes = append(notes, ZkNote{Title: title, FilenameStem: stem, Display: display})
+			notes = append(notes, ZkNote{Title: title, Path: path, Display: display})
 		}
 	}
 	return notes
@@ -190,8 +190,8 @@ func (m *InputModel) updateSuggestions() {
 		m.isCompleting = true
 		prefix := strings.ToLower(currentWord[2:])
 		for _, n := range m.zkNotes {
-			if strings.HasPrefix(strings.ToLower(n.Display), prefix) || strings.HasPrefix(strings.ToLower(n.FilenameStem), prefix) {
-				m.suggestions = append(m.suggestions, Suggestion{Display: n.Display, Insert: "[[" + n.FilenameStem + "]]"})
+			if strings.HasPrefix(strings.ToLower(n.Display), prefix) || strings.HasPrefix(strings.ToLower(n.Path), prefix) {
+				m.suggestions = append(m.suggestions, Suggestion{Display: n.Display, Insert: "[[" + n.Path + "]]"})
 			}
 		}
 	}
