@@ -161,18 +161,20 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 
 // App model
 type Model struct {
-	list        list.Model
-	dbConn      *db.DB
-	inboxPath   string
-	loaded      bool
-	err         error
-	keys        *keyMap
-	isInputView bool
-	inputModel  InputModel
-	program     *tea.Program
+	list          list.Model
+	dbConn        *db.DB
+	inboxPath     string
+	loaded        bool
+	err           error
+	keys          *keyMap
+	isInputView   bool
+	inputModel    InputModel
+	program       *tea.Program
+	filterProject string
+	filterStatus  []string
 }
 
-func NewModel(dbConn *db.DB, inboxPath string) *Model {
+func NewModel(dbConn *db.DB, inboxPath string, project string, statuses []string, filterText string) *Model {
 	keys := newKeyMap()
 	d := taskDelegate{keys: keys}
 	l := list.New([]list.Item{}, d, 0, 0)
@@ -180,6 +182,10 @@ func NewModel(dbConn *db.DB, inboxPath string) *Model {
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = lipgloss.NewStyle().Background(lipgloss.Color("#4169E1")).Foreground(lipgloss.Color("#FFF")).Padding(0, 1)
+
+	if filterText != "" {
+		l.FilterInput.SetValue(filterText)
+	}
 
 	// Inject keys into list's help menu
 	l.AdditionalFullHelpKeys = func() []key.Binding {
@@ -190,20 +196,28 @@ func NewModel(dbConn *db.DB, inboxPath string) *Model {
 	}
 
 	return &Model{
-		list:        l,
-		dbConn:      dbConn,
-		inboxPath:   inboxPath,
-		isInputView: false,
-		inputModel:  NewInputModel(),
-		keys:        keys,
+		list:          l,
+		dbConn:        dbConn,
+		inboxPath:     inboxPath,
+		isInputView:   false,
+		inputModel:    NewInputModel(),
+		keys:          keys,
+		filterProject: project,
+		filterStatus:  statuses,
 	}
 }
 
 func (m *Model) loadTasks() tea.Cmd {
 	return func() tea.Msg {
-		tasks, err := m.dbConn.GetTasks(db.GetTasksOpts{
-			Statuses: []string{"todo", "in_progress"},
-		})
+		opts := db.GetTasksOpts{
+			Statuses: m.filterStatus,
+			Project:  m.filterProject,
+		}
+		if len(opts.Statuses) == 0 {
+			opts.Statuses = []string{"todo", "in_progress"} // Default if somehow emptied
+		}
+
+		tasks, err := m.dbConn.GetTasks(opts)
 		if err != nil {
 			return err
 		}

@@ -48,6 +48,19 @@ Simply run `task` in your terminal to open the UI.
 
 The TUI automatically live-reloads if you edit your tasks inside Neovim concurrently!
 
+### Pre-applied Filters
+You can launch the TUI with filters pre-applied using CLI flags:
+```bash
+# Launch the TUI, immediately fuzzy-searching for "urgent"
+task -f "urgent"
+
+# Launch the TUI showing only tasks from the "work" project
+task -p "work"
+
+# Launch the TUI showing both open AND completed tasks
+task -s "todo,in_progress,done"
+```
+
 ## CLI Usage
 
 The executable doubles as a powerful CLI designed to be orchestrated by Neovim.

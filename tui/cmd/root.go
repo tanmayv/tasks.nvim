@@ -13,9 +13,14 @@ var rootCmd = &cobra.Command{
 	Use:   "task",
 	Short: "A CLI/TUI task manager companion to nvim-task-manager",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Default action is to run the TUI, which we'll define later
-		runTUI()
+		runTUI(cmd)
 	},
+}
+
+func init() {
+	rootCmd.Flags().StringP("filter", "f", "", "Pre-fill the TUI fuzzy search filter")
+	rootCmd.Flags().StringP("project", "p", "", "Filter tasks by project")
+	rootCmd.Flags().StringSliceP("status", "s", []string{"todo", "in_progress"}, "Filter tasks by status (todo, in_progress, done, cancelled)")
 }
 
 func Execute() {
