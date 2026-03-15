@@ -163,12 +163,40 @@ func (m *InputModel) updateSuggestions() {
 }
 
 func (m InputModel) View() string {
+	if m.Confirming {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true).Render("Discard pending tasks? (y/n)"),
+		)
+	}
+
+	var pendingViews []string
+	if len(m.PendingTasks) > 0 {
+		pendingViews = append(pendingViews, lipgloss.NewStyle().Foreground(lipgloss.Color("#A9A9A9")).Render("Pending tasks:"))
+		for i, t := range m.PendingTasks {
+			displayTask := t
+			if len(displayTask) > 55 {
+				displayTask = displayTask[:52] + "..."
+			}
+			pendingViews = append(pendingViews, lipgloss.NewStyle().Foreground(lipgloss.Color("#6495ED")).Render(" " + string(rune(i+49)) + ". " + displayTask))
+		}
+	}
+
 	view := lipgloss.JoinVertical(
 		lipgloss.Left,
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#4169E1")).Bold(true).Render("New Task"),
 		"",
 		m.textInput.View(),
 	)
+
+	if len(pendingViews) > 0 {
+		view = lipgloss.JoinVertical(
+			lipgloss.Left,
+			view,
+			"",
+			strings.Join(pendingViews, "\n"),
+		)
+	}
 
 	if m.isCompleting && len(m.suggestions) > 0 {
 		var suggestionViews []string
@@ -191,12 +219,13 @@ func (m InputModel) View() string {
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("(tab/c-n/c-p to cycle, enter/c-y to select)"),
 		)
 	} else {
+		helpText := "(enter to queue, enter on empty to save, esc/q to cancel)"
 		view = lipgloss.JoinVertical(
 			lipgloss.Left,
 			view,
 			"",
 			"",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("(esc to cancel, enter to save)"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(helpText),
 		)
 	}
 
