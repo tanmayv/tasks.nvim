@@ -28,23 +28,23 @@ local function apply_syntax(bufnr)
   
   if in_dir or vim.b[bufnr].is_task_manager_input or vim.b[bufnr].is_task_manager_editor then
     vim.api.nvim_buf_call(bufnr, function()
-      -- Apply regex based syntax matches
+      -- Apply regex based syntax matches bound to the specific buffer window
       vim.cmd([[
-        syntax match TaskManagerProject /@[a-zA-Z0-9_-]\+/
-        syntax match TaskManagerTag /#[a-zA-Z0-9_-]\+/
-        syntax match TaskManagerPriority /+[a-zA-Z0-9_-]\+/
-        syntax match TaskManagerDueDate /\<\(due\|start\):[a-zA-Z0-9_-]\+/
-        syntax match TaskManagerId /id:t:[a-zA-Z0-9_-]\+/
-        syntax match TaskManagerMetadata /\<[bcl|done]\+:[a-zA-Z0-9_-]\+/
-        syntax match TaskManagerPipe /|/
+        syntax match TaskManagerProject /@[a-zA-Z0-9_-]\+/ containedin=ALL
+        syntax match TaskManagerTag /#[a-zA-Z0-9_-]\+/ containedin=ALL
+        syntax match TaskManagerPriority /+[a-zA-Z0-9_-]\+/ containedin=ALL
+        syntax match TaskManagerDueDate /\<\(due\|start\):[a-zA-Z0-9_-]\+/ containedin=ALL
+        syntax match TaskManagerId /id:t:[a-zA-Z0-9_-]\+/ containedin=ALL
+        syntax match TaskManagerMetadata /\<[bcl|done]\+:[a-zA-Z0-9_-]\+/ containedin=ALL
+        syntax match TaskManagerPipe /|/ containedin=ALL
       ]])
     end)
   end
 end
 
-vim.api.nvim_create_autocmd("BufEnter", {
+vim.api.nvim_create_autocmd({"BufEnter", "FileType"}, {
   group = group,
-  pattern = "*.md",
+  pattern = {"*.md", "markdown"},
   callback = function(args)
     apply_syntax(args.buf)
   end
