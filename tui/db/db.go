@@ -40,10 +40,16 @@ func Connect(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create database directory %s: %w", dir, err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// Enable WAL mode, set busy timeout, and enforce strict foreign keys at connection level
+	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)", dbPath)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+
+	// SQLite only supports one concurrent writer safely. Connection pooling can cause
+	// "database is locked" errors internally if multiple goroutines try to write.
+	db.SetMaxOpenConns(1)
 
 	d := &DB{DB: db}
 	if err := d.InitDB(); err != nil {
@@ -56,6 +62,11 @@ func Connect(dbPath string) (*DB, error) {
 
 func (d *DB) InitDB() error {
 	query := `
+		PRAGMA foreign_keys = ON;
+		PRAGMA journal_mode = WAL;
+		PRAGMA synchronous = NORMAL;
+		PRAGMA busy_timeout = 5000;
+
 		CREATE TABLE IF NOT EXISTS tasks (
 			id TEXT PRIMARY KEY,
 			description TEXT,
@@ -381,7 +392,7 @@ func (d *DB) DeleteMissingTasksInFile(filePath string, currentIDs map[string]boo
 		defer tx.Rollback()
 
 		for _, id := range toDelete {
-			_, err = tx.Exec(`DELETE FROM tasks WHERE id = ?`, id)
+			_, err = tx.Exec(`UPDATE tasks SET status = 'deleted' WHERE id = ?`, id)
 			if err != nil {
 				return err
 			}
@@ -445,4 +456,82 @@ func (d *DB) ClearTasks() error {
 	}
 
 	return tx.Commit()
+}
+
+// GetCompletedTodayTasks returns tasks completed today, optionally filtered by project.
+func (d *DB) GetCompletedTodayTasks(opts GetTasksOpts) ([]*Task, error) {
+	today := time.Now().UTC().Format("2006-01-02")
+	
+	query := `SELECT t.id, t.description, t.status, t.project, t.priority, t.due_date, t.start_date, t.file_path, t.line_number, t.created_at, t.updated_at FROM tasks t JOIN task_metadata tm ON t.id = tm.task_id WHERE t.status = 'done' AND tm.key = 'done' AND tm.value = $1`
+	var args []interface{}
+	args = append(args, today)
+	argCount := 2
+
+	if opts.Project != "" {
+		query += fmt.Sprintf(" AND t.project = $%d", argCount)
+		args = append(args, opts.Project)
+		argCount++
+	}
+
+	rows, err := d.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []*Task
+	for rows.Next() {
+		task := &Task{
+			Tags:     []string{},
+			Metadata: make(map[string]string),
+		}
+		var proj, prio, due, start sql.NullString
+		if err := rows.Scan(
+			&task.ID, &task.Description, &task.Status, &proj, &prio, &due, &start,
+			&task.FilePath, &task.LineNumber, &task.CreatedAt, &task.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		task.Project = proj.String
+		task.Priority = prio.String
+		task.DueDate = due.String
+		task.StartDate = start.String
+
+		tasks = append(tasks, task)
+	}
+
+	for _, task := range tasks {
+		tagRows, err := d.DB.Query(`SELECT tag_name FROM task_tags WHERE task_id = ?`, task.ID)
+		if err == nil {
+			for tagRows.Next() {
+				var tag string
+				if tagRows.Scan(&tag) == nil {
+					task.Tags = append(task.Tags, tag)
+				}
+			}
+			tagRows.Close()
+		}
+
+		metaRows, err := d.DB.Query(`SELECT key, value FROM task_metadata WHERE task_id = ?`, task.ID)
+		if err == nil {
+			for metaRows.Next() {
+				var k, v string
+				if metaRows.Scan(&k, &v) == nil {
+					task.Metadata[k] = v
+				}
+			}
+			metaRows.Close()
+		}
+		
+		d.calculateScore(task)
+	}
+
+	sort.Slice(tasks, func(i, j int) bool {
+		if tasks[i].Score == tasks[j].Score {
+			return tasks[i].UpdatedAt > tasks[j].UpdatedAt
+		}
+		return tasks[i].Score > tasks[j].Score
+	})
+
+	return tasks, nil
 }

@@ -30,13 +30,14 @@ func DeleteTask(taskID, filePath string, d *db.DB) error {
 	lineModified := false
 	var finalLines []string
 
-	// Find and remove the line with the task ID
+	// Find and comment the line with the task ID
 	for _, line := range lines {
 		if strings.Contains(line, "id:"+taskID) {
 			parsed := parser.ParseLine(line)
 			if parsed != nil && parsed.ID == taskID {
 				lineModified = true
-				continue // Skip appending this line (deleting it)
+				finalLines = append(finalLines, "<!-- "+line+" -->")
+				continue // Append commented out line instead of deleting it
 			}
 		}
 		finalLines = append(finalLines, line)
@@ -46,7 +47,7 @@ func DeleteTask(taskID, filePath string, d *db.DB) error {
 		return fmt.Errorf("task ID %s not found in file %s", taskID, filePath)
 	}
 
-	// Overwrite file with the line removed
+	// Overwrite file with the line commented
 	out, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -58,14 +59,14 @@ func DeleteTask(taskID, filePath string, d *db.DB) error {
 	}
 	out.Close()
 
-	// Delete from DB
+	// Update DB to deleted
 	tx, err := d.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
+	_, err = tx.Exec(`UPDATE tasks SET status = 'deleted' WHERE id = ?`, taskID)
 	if err != nil {
 		return err
 	}

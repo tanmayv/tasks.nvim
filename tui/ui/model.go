@@ -232,6 +232,14 @@ func (m *Model) loadTasks() tea.Cmd {
 			return err
 		}
 
+		completedOpts := db.GetTasksOpts{
+			Project: m.filterProject,
+		}
+		completedTasks, err := m.dbConn.GetCompletedTodayTasks(completedOpts)
+		if err == nil {
+			tasks = append(tasks, completedTasks...)
+		}
+
 		items := make([]list.Item, len(tasks))
 		for i, t := range tasks {
 			items[i] = item{task: t}
