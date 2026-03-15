@@ -1,0 +1,4 @@
+{
+  "db_path": "~/.local/share/nvim/task_manager.db",
+  "inbox_file": "~/tasks/my_custom_inbox.md"
+}
