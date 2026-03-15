@@ -31,7 +31,7 @@
             writableTmpDirAsHomeHook
           ];
           checkPhase = ''
-            go test -v ./...
+            cd tui && go test -v ./...
           '';
           installPhase = ''
             mkdir "$out"
@@ -49,7 +49,7 @@
             writableTmpDirAsHomeHook
           ];
           checkPhase = ''
-            golangci-lint run
+            cd tui && golangci-lint run
           '';
           installPhase = ''
             mkdir "$out"

@@ -16,8 +16,8 @@
 buildGoApplication {
   pname = "task";
   version = "0.1";
-  pwd = ./.;
-  src = ./.;
+  pwd = ./tui;
+  src = ./tui;
   modules = ./gomod2nix.toml;
   postInstall = ''
     mv $out/bin/tui $out/bin/task
