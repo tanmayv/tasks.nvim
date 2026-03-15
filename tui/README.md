@@ -41,6 +41,7 @@ Simply run `task` in your terminal to open the UI.
 - `j`/`k` or `Up`/`Down`: Navigate the list
 - `space`: Toggle the current task as done/todo
 - `a`: Append a new task to your inbox
+- `e` or `enter`: Open the selected task directly in Neovim!
 - `d` or `x`: Delete the current task entirely from your system
 - `/`: Filter tasks (fuzzy search description, tags, projects)
 - `q` or `esc`: Quit

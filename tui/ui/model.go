@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -53,6 +54,7 @@ type keyMap struct {
 	toggle key.Binding
 	add    key.Binding
 	delete key.Binding
+	edit   key.Binding
 }
 
 func newKeyMap() *keyMap {
@@ -68,6 +70,10 @@ func newKeyMap() *keyMap {
 		delete: key.NewBinding(
 			key.WithKeys("x", "d"),
 			key.WithHelp("x/d", "delete"),
+		),
+		edit: key.NewBinding(
+			key.WithKeys("e", "enter"),
+			key.WithHelp("e/enter", "edit"),
 		),
 	}
 }
@@ -177,10 +183,10 @@ func NewModel(dbConn *db.DB, inboxPath string) *Model {
 
 	// Inject keys into list's help menu
 	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.toggle, keys.add, keys.delete}
+		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit}
 	}
 	l.AdditionalShortHelpKeys = func() []key.Binding {
-		return []key.Binding{keys.toggle, keys.add, keys.delete}
+		return []key.Binding{keys.toggle, keys.add, keys.delete, keys.edit}
 	}
 
 	return &Model{
@@ -289,6 +295,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Reload after toggle
 				return m, m.loadTasks()
+			}
+		case key.Matches(msg, m.keys.edit):
+			if m.list.FilterState() == list.Filtering {
+				break
+			}
+			if selected, ok := m.list.SelectedItem().(item); ok {
+				cmd := exec.Command("nvim", fmt.Sprintf("+%d", selected.task.LineNumber), selected.task.FilePath)
+				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+					if err != nil {
+						m.err = err
+					}
+					return ReloadMsg{}
+				})
 			}
 		}
 
