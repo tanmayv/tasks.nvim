@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tanmayv/nvim-task-manager/tui/config"
 	"github.com/tanmayv/nvim-task-manager/tui/db"
+	"github.com/tanmayv/nvim-task-manager/tui/sync"
 )
 
 var rootCmd = &cobra.Command{
@@ -37,11 +38,26 @@ func getDB() *db.DB {
 		os.Exit(1)
 	}
 
+	needsIndexing := false
+	if _, err := os.Stat(cfg.DBPath); os.IsNotExist(err) {
+		needsIndexing = true
+	}
+
 	dbConn, err := db.Connect(cfg.DBPath)
 	if err != nil {
 		fmt.Printf("Error connecting to database at %s: %v\n", cfg.DBPath, err)
 		os.Exit(1)
 	}
+
+	if needsIndexing {
+		for _, dir := range cfg.Directories {
+			err := sync.IndexDirectory(dir, dbConn, cfg)
+			if err != nil {
+				fmt.Printf("Warning: failed to index directory %s: %v\n", dir, err)
+			}
+		}
+	}
+
 	return dbConn
 }
 

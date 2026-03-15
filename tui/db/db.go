@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -32,11 +34,56 @@ type DB struct {
 }
 
 func Connect(dbPath string) (*DB, error) {
+	// Ensure parent directory exists
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create database directory %s: %w", dir, err)
+	}
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, err
 	}
-	return &DB{DB: db}, nil
+
+	d := &DB{DB: db}
+	if err := d.InitDB(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
+	}
+
+	return d, nil
+}
+
+func (d *DB) InitDB() error {
+	query := `
+		CREATE TABLE IF NOT EXISTS tasks (
+			id TEXT PRIMARY KEY,
+			description TEXT,
+			status TEXT,
+			project TEXT,
+			priority TEXT,
+			due_date TEXT,
+			start_date TEXT,
+			file_path TEXT,
+			line_number INTEGER,
+			created_at INTEGER,
+			updated_at INTEGER,
+			score INTEGER
+		);
+		CREATE TABLE IF NOT EXISTS task_metadata (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+			key TEXT,
+			value TEXT
+		);
+		CREATE TABLE IF NOT EXISTS task_tags (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+			tag_name TEXT
+		);
+	`
+	_, err := d.DB.Exec(query)
+	return err
 }
 
 func (d *DB) Close() error {
