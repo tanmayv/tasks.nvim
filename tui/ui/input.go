@@ -56,13 +56,13 @@ func (m *InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "tab":
+		case "tab", "ctrl+n":
 			if m.isCompleting && len(m.suggestions) > 0 {
 				m.suggestionIndex = (m.suggestionIndex + 1) % len(m.suggestions)
 				m.activeSuggestion = m.suggestions[m.suggestionIndex]
 				return *m, nil
 			}
-		case "shift+tab":
+		case "shift+tab", "ctrl+p":
 			if m.isCompleting && len(m.suggestions) > 0 {
 				m.suggestionIndex--
 				if m.suggestionIndex < 0 {
@@ -71,7 +71,7 @@ func (m *InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 				m.activeSuggestion = m.suggestions[m.suggestionIndex]
 				return *m, nil
 			}
-		case "enter":
+		case "enter", "ctrl+y":
 			if m.isCompleting && len(m.suggestions) > 0 {
 				// Insert suggestion
 				val := m.textInput.Value()
@@ -186,7 +186,7 @@ func (m InputModel) View() string {
 			"",
 			lipgloss.JoinHorizontal(lipgloss.Top, suggestionViews...),
 			"",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("(tab to cycle, enter to select)"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render("(tab/c-n/c-p to cycle, enter/c-y to select)"),
 		)
 	} else {
 		view = lipgloss.JoinVertical(

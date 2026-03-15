@@ -243,6 +243,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.isInputView {
+			// Record if we were completing before we pass the message down
+			wasCompleting := m.inputModel.isCompleting && len(m.inputModel.suggestions) > 0
+
 			// Pass to input model first to catch tab/enter for autocomplete
 			var cmd tea.Cmd
 			m.inputModel, cmd = m.inputModel.Update(msg)
@@ -255,7 +258,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "enter":
 				// If we just autocompleted, we don't want to submit yet
-				if !m.inputModel.isCompleting && len(m.inputModel.suggestions) == 0 {
+				if !wasCompleting {
 					val := m.inputModel.textInput.Value()
 					if strings.TrimSpace(val) != "" {
 						cfg, _ := config.LoadConfig()
