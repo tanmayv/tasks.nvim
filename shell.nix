@@ -15,7 +15,7 @@
 }:
 
 let
-  goEnv = mkGoEnv { pwd = ./.; };
+  goEnv = mkGoEnv { pwd = ./tui; };
 in
 pkgs.mkShell {
   packages = [
