@@ -1,7 +1,6 @@
 package db
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,42 +16,12 @@ func setupTestDB(t *testing.T) (*DB, string) {
 	}
 
 	dbPath := filepath.Join(tmpDir, "test.db")
-	db, err := sql.Open("sqlite", dbPath)
+	d, err := Connect(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = db.Exec(`
-		CREATE TABLE tasks (
-			id TEXT PRIMARY KEY,
-			description TEXT,
-			status TEXT,
-			project TEXT,
-			priority TEXT,
-			due_date TEXT,
-			start_date TEXT,
-			file_path TEXT,
-			line_number INTEGER,
-			created_at INTEGER,
-			updated_at INTEGER
-		);
-		CREATE TABLE task_metadata (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
-			key TEXT,
-			value TEXT
-		);
-		CREATE TABLE task_tags (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
-			tag_name TEXT
-		);
-	`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return &DB{DB: db}, dbPath
+	return d, dbPath
 }
 
 func TestGetTasks(t *testing.T) {

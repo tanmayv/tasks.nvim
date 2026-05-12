@@ -29,17 +29,23 @@ function M.start_watcher()
   local uv = vim.uv or vim.loop
   if not uv then return end
 
-  -- Check if db exists
-  if vim.fn.filereadable(db_path) == 0 then return end
+  local db_dir = vim.fn.fnamemodify(db_path, ":h")
+  local db_name = vim.fn.fnamemodify(db_path, ":t")
+  local db_wal_name = db_name .. "-wal"
+
+  -- Ensure parent directory exists before watching
+  if vim.fn.isdirectory(db_dir) == 0 then
+    vim.fn.mkdir(db_dir, "p")
+  end
 
   db_watcher = uv.new_fs_event()
-  db_watcher:start(db_path, {}, function(err, filename, events)
+  db_watcher:start(db_dir, {}, function(err, filename, events)
     if err then return end
-    vim.schedule(function()
-      vim.api.nvim_exec_autocmds("User", { pattern = "TaskManagerUpdated" })
-      -- We can optionally checktime here, but checktime checks file changes on disk, not DB changes.
-      -- The DB watcher is great to trigger Telescope/LSP refresh.
-    end)
+    if filename == db_name or filename == db_wal_name then
+      vim.schedule(function()
+        vim.api.nvim_exec_autocmds("User", { pattern = "TaskManagerUpdated" })
+      end)
+    end
   end)
 end
 

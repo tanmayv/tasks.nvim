@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -12,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tanmayv/nvim-task-manager/tui/config"
 	"github.com/tanmayv/nvim-task-manager/tui/db"
+	"github.com/tanmayv/nvim-task-manager/tui/parser"
 	"github.com/tanmayv/nvim-task-manager/tui/sync"
 )
 
@@ -151,6 +156,10 @@ func (d taskDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		metaParts = append(metaParts, strings.Join(tagStrs, " "))
 	}
 
+	if task.NoteTitle != "" {
+		metaParts = append(metaParts, lipgloss.NewStyle().Foreground(lipgloss.Color("#98FB98")).Render("· "+task.NoteTitle))
+	}
+
 	if task.DueDate != "" {
 		dueStr := "due:" + task.DueDate
 		if task.Score >= 200 { // Overdue logic triggers urgent score
@@ -194,7 +203,7 @@ func NewModel(dbConn *db.DB, inboxPath string, project string, statuses []string
 	l.Styles.Title = lipgloss.NewStyle().Background(lipgloss.Color("#4169E1")).Foreground(lipgloss.Color("#FFF")).Padding(0, 1)
 
 	if filterText != "" {
-		l.FilterInput.SetValue(filterText)
+		l.SetFilterText(filterText)
 	}
 
 	// Inject keys into list's help menu
@@ -240,8 +249,17 @@ func (m *Model) loadTasks() tea.Cmd {
 			tasks = append(tasks, completedTasks...)
 		}
 
+		cfg, _ := config.LoadConfig()
+		var zkDir string
+		if cfg != nil && len(cfg.Directories) > 0 {
+			zkDir = cfg.Directories[0]
+		}
+
 		items := make([]list.Item, len(tasks))
 		for i, t := range tasks {
+			if t.AttachedNote != "" && zkDir != "" {
+				t.NoteTitle = fetchNoteTitle(t.AttachedNote, zkDir)
+			}
 			items[i] = item{task: t}
 		}
 
@@ -318,8 +336,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Submitting all tasks
 					if len(m.inputModel.PendingTasks) > 0 {
 						cfg, _ := config.LoadConfig()
+
+						// Extract active projects and tags from the active fuzzy search filter
+						var filterProjectFromSearch string
+						var tagsFromSearch []string
+						filterVal := m.list.FilterValue()
+						if strings.TrimSpace(filterVal) != "" {
+							for _, token := range strings.Fields(filterVal) {
+								if strings.HasPrefix(token, "@") {
+									filterProjectFromSearch = strings.TrimPrefix(token, "@")
+								} else if strings.HasPrefix(token, "#") {
+									tagsFromSearch = append(tagsFromSearch, token)
+								}
+							}
+						}
+
 						for _, taskDesc := range m.inputModel.PendingTasks {
-							err := sync.AddTaskToInbox(taskDesc, m.inboxPath, m.dbConn, cfg)
+							finalDesc := taskDesc
+							
+							// Token-aware project and tag extraction check on the quick-add text
+							hasProject := false
+							existingTags := make(map[string]bool)
+							for _, word := range strings.Fields(taskDesc) {
+								if strings.HasPrefix(word, "@") {
+									hasProject = true
+								} else if strings.HasPrefix(word, "#") {
+									existingTags[word] = true
+								}
+							}
+
+							// Project inheritance
+							if !hasProject {
+								if m.filterProject != "" {
+									finalDesc = finalDesc + " @" + m.filterProject
+								} else if filterProjectFromSearch != "" {
+									finalDesc = finalDesc + " @" + filterProjectFromSearch
+								}
+							}
+
+							// Tag inheritance
+							for _, tag := range tagsFromSearch {
+								if !existingTags[tag] {
+									finalDesc = finalDesc + " " + tag
+								}
+							}
+
+							err := sync.AddTaskToInbox(finalDesc, m.inboxPath, m.dbConn, cfg)
 							if err != nil {
 								m.err = err
 							}
@@ -397,7 +459,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			if selected, ok := m.list.SelectedItem().(item); ok {
-				// Parse zk links from task description: [[...]]
+				cfg, _ := config.LoadConfig()
+				var zkDir string
+				if cfg != nil && len(cfg.Directories) > 0 {
+					zkDir = cfg.Directories[0]
+				}
+
+				// Part 3: Overloaded Note Navigation
+				if selected.task.AttachedNote != "" {
+					noteTarget := selected.task.AttachedNote
+					if !strings.HasPrefix(noteTarget, "/") && zkDir != "" {
+						resolved := resolveNotePath(noteTarget, zkDir)
+						if resolved != "" {
+							noteTarget = resolved
+						}
+					}
+
+					cmd := exec.Command("nvim", noteTarget)
+					return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+						if err != nil {
+							m.err = err
+						}
+						return ReloadMsg{}
+					})
+				}
+
+				// Fall back standardly to scanning the task description for zk links
 				var links []string
 				desc := selected.task.Description
 				for {
@@ -421,29 +508,157 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					args := []string{"list", "--quiet", "--format", "{{absPath}}"}
 					args = append(args, links...)
 					zkCmd := exec.Command("zk", args...)
+					if zkDir != "" {
+						zkCmd.Dir = zkDir
+					}
 					out, err := zkCmd.Output()
 					
-					if err == nil && len(out) > 0 {
-						absPaths := strings.Split(strings.TrimSpace(string(out)), "\n")
-						var validPaths []string
-						for _, p := range absPaths {
-							if !strings.HasPrefix(p, "zk: warning:") && p != "" {
-								validPaths = append(validPaths, p)
-							}
-						}
+					if err != nil {
+						m.err = err
+						return m, nil
+					}
 
-						if len(validPaths) > 0 {
-							nvimArgs := append([]string{"-O"}, validPaths...) // -O opens in vertical splits
-							cmd := exec.Command("nvim", nvimArgs...)
-							return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-								if err != nil {
-									m.err = err
-								}
-								return ReloadMsg{}
-							})
+					if len(out) == 0 {
+						m.err = fmt.Errorf("no notes resolved for links: %v", links)
+						return m, nil
+					}
+
+					absPaths := strings.Split(strings.TrimSpace(string(out)), "\n")
+					var validPaths []string
+					for _, p := range absPaths {
+						if !strings.HasPrefix(p, "zk: warning:") && p != "" {
+							validPaths = append(validPaths, p)
 						}
 					}
+
+					if len(validPaths) > 0 {
+						nvimArgs := append([]string{"-O"}, validPaths...) // -O opens in vertical splits
+						cmd := exec.Command("nvim", nvimArgs...)
+						return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+							if err != nil {
+								m.err = err
+							}
+							return ReloadMsg{}
+						})
+					} else {
+						m.err = fmt.Errorf("no notes resolved for links: %v", links)
+					}
 				}
+			}
+
+		case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+t"))):
+			if m.list.FilterState() == list.Filtering {
+				break
+			}
+			if selected, ok := m.list.SelectedItem().(item); ok {
+				// Overload check: If note is already attached, directly open it!
+				if selected.task.AttachedNote != "" {
+					cfg, _ := config.LoadConfig()
+					var zkDir string
+					if cfg != nil && len(cfg.Directories) > 0 {
+						zkDir = cfg.Directories[0]
+					}
+
+					noteTarget := selected.task.AttachedNote
+					if !strings.HasPrefix(noteTarget, "/") && zkDir != "" {
+						resolved := resolveNotePath(noteTarget, zkDir)
+						if resolved != "" {
+							noteTarget = resolved
+						}
+					}
+
+					cmd := exec.Command("nvim", noteTarget)
+					return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+						if err != nil {
+							m.err = err
+						}
+						return ReloadMsg{}
+					})
+				}
+
+				// Part 2: TUI Inline Note Creation Hotkey <C-t>
+				out, err := exec.Command("nn", "--print-path").Output()
+				if err != nil {
+					m.err = fmt.Errorf("failed to execute nn: %w", err)
+					return m, nil
+				}
+				notePath := strings.TrimSpace(string(out))
+				if notePath == "" {
+					m.err = fmt.Errorf("no path returned by nn")
+					return m, nil
+				}
+
+				cmd := exec.Command("nvim", notePath)
+				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+					if err != nil {
+						m.err = err
+						return ReloadMsg{}
+					}
+
+					// Extract Note ID
+					noteFile := strings.Split(notePath, "/")
+					noteID := strings.TrimSuffix(noteFile[len(noteFile)-1], ".md")
+
+					// 1. Update SQLite database attached_note field
+					_, err = m.dbConn.DB.Exec(`UPDATE tasks SET attached_note = ?, updated_at = ? WHERE id = ?`, noteID, time.Now().Unix(), selected.task.ID)
+					if err != nil {
+						m.err = err
+						return ReloadMsg{}
+					}
+
+					// 2. Read original markdown file lines
+					filePath := selected.task.FilePath
+					file, err := os.Open(filePath)
+					if err != nil {
+						m.err = err
+						return ReloadMsg{}
+					}
+					var lines []string
+					scanner := bufio.NewScanner(file)
+					for scanner.Scan() {
+						lines = append(lines, scanner.Text())
+					}
+					file.Close()
+
+					// 3. Update the inline task note metadata note:ID
+					lineModified := false
+					for i, line := range lines {
+						if strings.Contains(line, "id:"+selected.task.ID) {
+							parsed := parser.ParseLine(line)
+							if parsed != nil && parsed.ID == selected.task.ID {
+								if parsed.Metadata == nil {
+									parsed.Metadata = make(map[string]string)
+								}
+								parsed.Metadata["note"] = noteID
+								lines[i] = parser.FormatLine(parsed)
+								lineModified = true
+								break
+							}
+						}
+					}
+
+					if lineModified {
+						outF, err := os.Create(filePath)
+						if err != nil {
+							m.err = fmt.Errorf("failed to re-write task source file %s: %w", filePath, err)
+							return ReloadMsg{}
+						}
+						for _, line := range lines {
+							outF.WriteString(line + "\n")
+						}
+						outF.Close()
+					} else {
+						// If no line was modified (ID not found in file)
+						m.err = fmt.Errorf("task ID %s not found inside source file %s (failed to append inline note)", selected.task.ID, filePath)
+						return ReloadMsg{}
+					}
+
+					// 4. Sync buffer to reconcile systems
+					cfg, _ := config.LoadConfig()
+					_ = sync.SyncBuffer(filePath, m.dbConn, cfg)
+
+					return ReloadMsg{}
+				})
 			}
 		case key.Matches(msg, m.keys.reindex):
 			if m.list.FilterState() == list.Filtering {
@@ -459,8 +674,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ReloadMsg:
 		return m, m.loadTasks()
 	case []list.Item:
-		m.list.SetItems(msg)
+		cmd := m.list.SetItems(msg)
 		m.loaded = true
+		return m, cmd
 
 	case error:
 		m.err = msg
@@ -504,4 +720,95 @@ func (m *Model) View() string {
 	}
 
 	return docStyle.Render(m.list.View())
+}
+
+func fetchNoteTitle(attachedNote string, zkDir string) string {
+	if attachedNote == "" || zkDir == "" {
+		return ""
+	}
+
+	// Resolve note path standardly (first check dots/ directory)
+	notePath := filepath.Join(zkDir, "dots", attachedNote+".md")
+	file, err := os.Open(notePath)
+	if err != nil {
+		// Fallback to direct path inside notebook
+		notePath = filepath.Join(zkDir, attachedNote+".md")
+		file, err = os.Open(notePath)
+		if err != nil {
+			return attachedNote
+		}
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	inFrontmatter := false
+	frontmatterDelims := 0
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "---" {
+			frontmatterDelims++
+			if frontmatterDelims == 1 {
+				inFrontmatter = true
+				continue
+			} else if frontmatterDelims == 2 {
+				inFrontmatter = false
+				continue
+			}
+		}
+
+		if inFrontmatter {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "# ") {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
+		}
+	}
+
+	return attachedNote
+}
+
+func resolveNotePath(attachedNote string, zkDir string) string {
+	if attachedNote == "" || zkDir == "" {
+		return ""
+	}
+
+	noteFile := attachedNote
+	if !strings.HasSuffix(noteFile, ".md") {
+		noteFile += ".md"
+	}
+
+	// Fast path 1: dots/ directory
+	p1 := filepath.Join(zkDir, "dots", noteFile)
+	if _, err := os.Stat(p1); err == nil {
+		return p1
+	}
+
+	// Fast path 2: notebook root folder
+	p2 := filepath.Join(zkDir, noteFile)
+	if _, err := os.Stat(p2); err == nil {
+		return p2
+	}
+
+	// Fallback: recursive Walk to find match
+	var foundPath string
+	_ = filepath.Walk(zkDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && filepath.Base(path) == noteFile {
+			foundPath = path
+			return fmt.Errorf("abort_walk")
+		}
+		return nil
+	})
+
+	if foundPath != "" {
+		return foundPath
+	}
+
+	return ""
 }

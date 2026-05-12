@@ -13,20 +13,22 @@ import (
 )
 
 type Task struct {
-	ID          string
-	Description string
-	Status      string
-	Project     string
-	Priority    string
-	DueDate     string
-	StartDate   string
-	FilePath    string
-	LineNumber  int
-	CreatedAt   int64
-	UpdatedAt   int64
-	Tags        []string
-	Metadata    map[string]string
-	Score       int
+	ID           string
+	Description  string
+	Status       string
+	Project      string
+	Priority     string
+	DueDate      string
+	StartDate    string
+	FilePath     string
+	LineNumber   int
+	CreatedAt    int64
+	UpdatedAt    int64
+	Tags         []string
+	Metadata     map[string]string
+	Score        int
+	AttachedNote string `json:"attached_note"`
+	NoteTitle    string `json:"note_title"`
 }
 
 type DB struct {
@@ -79,7 +81,8 @@ func (d *DB) InitDB() error {
 			line_number INTEGER,
 			created_at INTEGER,
 			updated_at INTEGER,
-			score INTEGER
+			score INTEGER,
+			attached_note TEXT
 		);
 		CREATE TABLE IF NOT EXISTS task_metadata (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,8 +96,37 @@ func (d *DB) InitDB() error {
 			tag_name TEXT
 		);
 	`
-	_, err := d.DB.Exec(query)
-	return err
+	if _, err := d.DB.Exec(query); err != nil {
+		return err
+	}
+
+	// Run lightweight dynamic schema migration pass
+	rows, err := d.DB.Query("PRAGMA table_info(tasks)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	hasNoteCol := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltVal interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltVal, &pk); err == nil {
+			if name == "attached_note" {
+				hasNoteCol = true
+				break
+			}
+		}
+	}
+	if !hasNoteCol {
+		if _, err = d.DB.Exec("ALTER TABLE tasks ADD COLUMN attached_note TEXT;"); err != nil {
+			return fmt.Errorf("failed to migrate tasks table: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (d *DB) Close() error {
@@ -107,7 +139,7 @@ type GetTasksOpts struct {
 }
 
 func (d *DB) GetTasks(opts GetTasksOpts) ([]*Task, error) {
-	query := `SELECT id, description, status, project, priority, due_date, start_date, file_path, line_number, created_at, updated_at FROM tasks WHERE 1=1`
+	query := `SELECT id, description, status, project, priority, due_date, start_date, file_path, line_number, created_at, updated_at, attached_note FROM tasks WHERE 1=1`
 	var args []interface{}
 	argCount := 1
 
@@ -142,10 +174,10 @@ func (d *DB) GetTasks(opts GetTasksOpts) ([]*Task, error) {
 			Tags:     []string{},
 			Metadata: make(map[string]string),
 		}
-		var proj, prio, due, start sql.NullString
+		var proj, prio, due, start, note sql.NullString
 		if err := rows.Scan(
 			&task.ID, &task.Description, &task.Status, &proj, &prio, &due, &start,
-			&task.FilePath, &task.LineNumber, &task.CreatedAt, &task.UpdatedAt,
+			&task.FilePath, &task.LineNumber, &task.CreatedAt, &task.UpdatedAt, &note,
 		); err != nil {
 			return nil, err
 		}
@@ -153,6 +185,7 @@ func (d *DB) GetTasks(opts GetTasksOpts) ([]*Task, error) {
 		task.Priority = prio.String
 		task.DueDate = due.String
 		task.StartDate = start.String
+		task.AttachedNote = note.String
 
 		tasks = append(tasks, task)
 	}
@@ -288,9 +321,9 @@ func (d *DB) InsertTask(task *Task) error {
 	now := time.Now().Unix()
 
 	_, err = tx.Exec(`
-		INSERT INTO tasks (id, description, status, project, priority, due_date, start_date, file_path, line_number, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, task.ID, task.Description, task.Status, task.Project, task.Priority, task.DueDate, task.StartDate, task.FilePath, task.LineNumber, now, now)
+		INSERT INTO tasks (id, description, status, project, priority, due_date, start_date, file_path, line_number, created_at, updated_at, attached_note)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, task.ID, task.Description, task.Status, task.Project, task.Priority, task.DueDate, task.StartDate, task.FilePath, task.LineNumber, now, now, task.AttachedNote)
 
 	if err != nil {
 		return err
@@ -330,9 +363,9 @@ func (d *DB) UpsertTask(task *Task) error {
 
 		_, err = tx.Exec(`
 			UPDATE tasks 
-			SET description = ?, status = ?, project = ?, priority = ?, due_date = ?, start_date = ?, file_path = ?, line_number = ?, updated_at = ?
+			SET description = ?, status = ?, project = ?, priority = ?, due_date = ?, start_date = ?, file_path = ?, line_number = ?, updated_at = ?, attached_note = ?
 			WHERE id = ?
-		`, task.Description, task.Status, task.Project, task.Priority, task.DueDate, task.StartDate, task.FilePath, task.LineNumber, time.Now().Unix(), task.ID)
+		`, task.Description, task.Status, task.Project, task.Priority, task.DueDate, task.StartDate, task.FilePath, task.LineNumber, time.Now().Unix(), task.AttachedNote, task.ID)
 		if err != nil {
 			return err
 		}
@@ -462,7 +495,7 @@ func (d *DB) ClearTasks() error {
 func (d *DB) GetCompletedTodayTasks(opts GetTasksOpts) ([]*Task, error) {
 	today := time.Now().UTC().Format("2006-01-02")
 	
-	query := `SELECT t.id, t.description, t.status, t.project, t.priority, t.due_date, t.start_date, t.file_path, t.line_number, t.created_at, t.updated_at FROM tasks t JOIN task_metadata tm ON t.id = tm.task_id WHERE t.status = 'done' AND tm.key = 'done' AND tm.value = $1`
+	query := `SELECT t.id, t.description, t.status, t.project, t.priority, t.due_date, t.start_date, t.file_path, t.line_number, t.created_at, t.updated_at, t.attached_note FROM tasks t JOIN task_metadata tm ON t.id = tm.task_id WHERE t.status = 'done' AND tm.key = 'done' AND tm.value = $1`
 	var args []interface{}
 	args = append(args, today)
 	argCount := 2
@@ -485,10 +518,10 @@ func (d *DB) GetCompletedTodayTasks(opts GetTasksOpts) ([]*Task, error) {
 			Tags:     []string{},
 			Metadata: make(map[string]string),
 		}
-		var proj, prio, due, start sql.NullString
+		var proj, prio, due, start, note sql.NullString
 		if err := rows.Scan(
 			&task.ID, &task.Description, &task.Status, &proj, &prio, &due, &start,
-			&task.FilePath, &task.LineNumber, &task.CreatedAt, &task.UpdatedAt,
+			&task.FilePath, &task.LineNumber, &task.CreatedAt, &task.UpdatedAt, &note,
 		); err != nil {
 			return nil, err
 		}
@@ -496,6 +529,7 @@ func (d *DB) GetCompletedTodayTasks(opts GetTasksOpts) ([]*Task, error) {
 		task.Priority = prio.String
 		task.DueDate = due.String
 		task.StartDate = start.String
+		task.AttachedNote = note.String
 
 		tasks = append(tasks, task)
 	}

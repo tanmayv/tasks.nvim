@@ -52,6 +52,7 @@ func AddTaskToInbox(desc, inboxPath string, d *db.DB, cfg *config.Config) error 
 		task.DueDate = parsedTask.DueDate
 		task.StartDate = parsedTask.StartDate
 		task.Metadata = parsedTask.Metadata
+		task.AttachedNote = parsedTask.Metadata["note"]
 	}
 
 	// Create formatted line to append
@@ -256,19 +257,20 @@ func SyncBuffer(filePath string, d *db.DB, cfg *config.Config) error {
 			// Convert to DB task
 			now := time.Now().Unix()
 			dbTask := &Task{
-				ID:          task.ID,
-				Description: task.Description,
-				Status:      task.Status,
-				Project:     task.Project,
-				Priority:    task.Priority,
-				DueDate:     task.DueDate,
-				StartDate:   task.StartDate,
-				FilePath:    filePath,
-				LineNumber:  i + 1,
-				CreatedAt:   now,
-				UpdatedAt:   now,
-				Tags:        task.Tags,
-				Metadata:    task.Metadata,
+				ID:           task.ID,
+				Description:  task.Description,
+				Status:       task.Status,
+				Project:      task.Project,
+				Priority:     task.Priority,
+				DueDate:      task.DueDate,
+				StartDate:    task.StartDate,
+				FilePath:     filePath,
+				LineNumber:   i + 1,
+				CreatedAt:    now,
+				UpdatedAt:    now,
+				Tags:         task.Tags,
+				Metadata:     task.Metadata,
+				AttachedNote: task.Metadata["note"],
 			}
 
 			err = d.UpsertTask(dbTask)

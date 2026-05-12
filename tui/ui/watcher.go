@@ -38,10 +38,8 @@ func (m *Model) StartDBWatcher(dbPath string) {
 		}
 	}()
 
-	err = watcher.Add(dbPath)
-	if err != nil {
-		log.Printf("Warning: failed to add db file to watcher: %v", err)
-	}
+	_ = watcher.Add(dbPath)
+	_ = watcher.Add(dbPath + "-wal")
 }
 
 type ReloadMsg struct{}
