@@ -453,6 +453,40 @@ func (d *DB) GetProjects() ([]string, error) {
 	return projects, nil
 }
 
+type ProjectStats struct {
+	Project string `json:"project"`
+	Open    int    `json:"open"`
+	Due     int    `json:"due"`
+}
+
+func (d *DB) GetProjectStats() ([]*ProjectStats, error) {
+	query := `
+		SELECT 
+			project,
+			SUM(status IN ('todo', 'in_progress')) AS open_count,
+			SUM(status IN ('todo', 'in_progress') AND due_date != '' AND due_date <= date('now')) AS due_count
+		FROM tasks 
+		WHERE project != '' 
+		GROUP BY project 
+		HAVING open_count > 0
+		ORDER BY due_count DESC, open_count DESC, project ASC;
+	`
+	rows, err := d.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats []*ProjectStats
+	for rows.Next() {
+		s := &ProjectStats{}
+		if err := rows.Scan(&s.Project, &s.Open, &s.Due); err == nil {
+			stats = append(stats, s)
+		}
+	}
+	return stats, nil
+}
+
 func (d *DB) GetTags() ([]string, error) {
 	rows, err := d.DB.Query(`SELECT DISTINCT tag_name FROM task_tags ORDER BY tag_name ASC`)
 	if err != nil {
